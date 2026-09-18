@@ -1,114 +1,92 @@
-# OpenPoke 🌴
+# openpoke-meets-jev
 
-OpenPoke is a simplified, open-source take on [Interaction Company’s](https://interaction.co/about) [Poke](https://poke.com/) assistant—built to show how a multi-agent orchestration stack can feel genuinely useful. It keeps the handful of things Poke is great at (email triage, reminders, and persistent agents) while staying easy to spin up locally.
+A fork of [OpenPoke](https://github.com/shlokkhemani/OpenPoke) that stops asking a chat model to make decisions.
 
-- Multi-agent FastAPI backend that mirrors Poke's interaction/execution split, powered by [OpenRouter](https://openrouter.ai/).
-- Gmail tooling via [Composio](https://composio.dev/) for drafting/replying/forwarding without leaving chat.
-- Trigger scheduler and background watchers for reminders and "important email" alerts.
-- Next.js web UI that proxies everything through the shared `.env`, so plugging in API keys is the only setup.
-- Optional typed-decision layer backed by [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), so classification, routing and guardrail judgements are calibrated probabilities instead of another LLM call.
+OpenPoke is Shlok Khemani's open reimplementation of Poke: a FastAPI backend with an interaction agent, execution agents, Gmail tooling through Composio, and a watcher that pings you about important mail. I run it locally and I like it. What kept bothering me is how much of it is an LLM being asked a yes/no question.
 
-## Requirements
-- Python 3.10+
-- Node.js 18+
-- npm 9+
+Look at what the important-email watcher actually does. Every minute it pulls your inbox, and for each new message it sends the full body to Claude Sonnet with a tool schema whose only required field is a boolean. Marketing mail, shipping notifications, newsletters, that Slack digest. All of it costs a Sonnet call to learn "no". The answer is one bit and you're paying for a model that can write poetry.
 
-## Quickstart
-1. **Clone and enter the repo.**
-   ```bash
-   git clone https://github.com/shlokkhemani/OpenPoke
-   cd OpenPoke
-   ```
-2. **Create a shared env file.** Copy the template and open it in your editor:
-   ```bash
-   cp .env.example .env
-   ```
-3. **Get your API keys and add them to `.env`:**
-   
-   **OpenRouter (Required)**
-   - Create an account at [openrouter.ai](https://openrouter.ai/)
-   - Generate an API key
-   - Replace `your_openrouter_api_key_here` with your actual key in `.env`
-   
-   **Composio (Required for Gmail)**
-   - Sign in at [composio.dev](https://composio.dev/)
-   - Create an API key
-   - Set up Gmail integration and get your auth config ID
-   - Replace `your_composio_api_key_here` and `your_gmail_auth_config_id_here` in `.env`
-4. **(Required) Create and activate a Python 3.10+ virtualenv:**
-   ```bash
-   # Ensure you're using Python 3.10+
-   python3.10 -m venv .venv
-   source .venv/bin/activate
-   
-   # Verify Python version (should show 3.10+)
-   python --version
-   ```
-   On Windows (PowerShell):
-   ```powershell
-   # Use Python 3.10+ (adjust path as needed)
-   python3.10 -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   
-   # Verify Python version
-   python --version
-   ```
+That's what this fork changes. Decisions go to [Jev](https://docs.typesafe.ai/concepts/system-one), TypeSafe's System One model, which answers typed questions with calibrated probabilities instead of text. The LLM stays for the part it's actually good at: writing the notification you read.
 
-5. **Install backend dependencies:**
-   ```bash
-   pip install -r server/requirements.txt
-   ```
-6. **Install frontend dependencies:**
-   ```bash
-   npm install --prefix web
-   ```
-7. **Start the FastAPI server:**
-   ```bash
-   python -m server.server --reload
-   ```
-8. **Start the Next.js app (new terminal):**
-   ```bash
-   npm run dev --prefix web
-   ```
-9. **Connect Gmail for email workflows.** With both services running, open [http://localhost:3000](http://localhost:3000), head to *Settings → Gmail*, and complete the Composio OAuth flow. This step is required for email drafting, replies, and the important-email monitor.
+## What's different
 
-The web app proxies API calls to the Python server using the values in `.env`, so keeping both processes running is required for end-to-end flows.
+Three places. All of them were already decisions dressed up as text generation.
 
-## Typed decisions with Jev (optional)
-OpenPoke asks an LLM for a number of judgements that are not really text generation: is this email worth interrupting the user, does this tool call match what the agent was asked to do, does this search result actually answer the question. Those are typed decisions, and [Jev](https://docs.typesafe.ai/concepts/system-one) — TypeSafe's System One model — answers them as calibrated probabilities in roughly a quarter of a second.
+**Important-email screening.** Before any LLM sees a message, one Jev call asks four things about it at once: does the recipient need to see this promptly, is it a security code, is it bulk mail, and is the body trying to give instructions to an AI assistant. Confidently unimportant mail is dropped without an LLM call at all. Confidently important mail skips straight to a summary. Only the uncertain middle, where the probability sits near 0.5 and genuinely means "I don't know", pays for the full tool-calling classifier. How much that saves depends entirely on your inbox, so I'm not going to quote a number I measured on mine.
 
-Set `TYPESAFE_API_KEY` in `.env` to turn the layer on. **Leave it unset and nothing changes**: every decision falls back to the LLM path that was there before.
+That fourth question is there because email bodies are attacker-controlled text that ends up inside an agent prompt. If a message reads as a prompt injection, the watcher does not forward it to the interaction agent, no matter how urgent it claims to be. TypeSafe's own RAG cookbook scores an injected forum post at 0.99 on the same question, which is a better signal than anything I'd get out of a system prompt telling a model to be careful.
 
-What it is wired into:
+**Tool-call guardrail.** Execution agents send email. Before an irreversible Gmail tool runs, three questions check the call against the assignment the agent was given: does this contradict what it was asked to do, is it reaching for people and threads nobody mentioned, can the effect be undone. A call that trips the first bar doesn't run. It comes back to the agent as a tool error so it can correct itself. The user never sees a refusal, and reads are never blocked for wandering off task, because an agent that can't look things up is useless.
 
-| Decision | Where | Effect |
-| --- | --- | --- |
-| Email importance | `server/services/gmail/importance_classifier.py` | Confidently unimportant mail never reaches an LLM; confidently important mail skips straight to summarisation; only the uncertain band pays for the full tool-calling classifier. A `prompt_injection` question also stops a confidently attacker-authored body from being pushed to the interaction agent by the watcher. |
-| Tool-call guardrail | `server/agents/execution_agent/runtime.py` | Before an irreversible Gmail tool runs, three nouls check the call against the agent's assignment. A held call is handed back to the agent as a tool error so it can correct itself — it is never surfaced to the user as a refusal. |
-| Search relevance | `server/agents/execution_agent/tasks/search_email/tool.py` | Verifies the results the search LLM selected, dropping ones that do not answer the request. Never empties a result set. |
+**Search relevance.** The email-search task ends with an LLM picking message ids out of a list. One batched Jev call re-checks that selection against the original request and drops results that clearly don't answer it. It will never empty a result set: if everything scores low, that says something about the query, not about any one email, so the LLM's picks stand.
 
-Every question lives in `server/jev/questions.py` and every threshold in `server/jev/thresholds.py`, so the whole policy can be reviewed in two files. Notes worth reading before tuning them:
+Everything is optional. With no `TYPESAFE_API_KEY` set, every entry point returns "undecided" or "allow" and you get the original OpenPoke behaviour, byte for byte. I kept the old classifier intact rather than rewriting it, so the fallback path is the code that was already working.
 
-- **Thresholds are defaults, not truths.** Jev is calibrated across a population of answers rather than per answer, so sweep these against your own labelled mail before trusting them.
-- **`noul` answers carry no `confidence` field.** The probability is the signal and values near `0.5` are the uncertain region, which is why each gate is a two-sided band.
-- **The model is pinned** (`jev-1.13.0`). `jev-latest` moves when a release ships, and the thresholds are calibrated against one model.
-- **Dates are never sent to Jev.** jev-1.13 reads dates as text rather than as ordered quantities, so email age and schedule reasoning stays in Python.
-- **Failure is fail-open, and bounded.** A Jev outage, rate limit, timeout or malformed response degrades OpenPoke to its previous behaviour. Every call carries a hard wall-clock deadline (`JEV_DEADLINE_SECONDS`, and a tighter `JEV_GUARDRAIL_DEADLINE_SECONDS` on the agent's hot path) because the SDK's retry budget is checked before it sleeps again and so does not bound wall time on its own.
-- **State size is capped, not trusted.** Bodies are clipped to `JEV_STATE_CHAR_BUDGET` and the search filter looks at at most `JEV_SEARCH_MAX_CANDIDATES` results, since the candidate count is chosen by an LLM.
-- **Where your mail goes.** With `TYPESAFE_API_KEY` set, email metadata and bodies — and execution-agent tool arguments, including draft text — are sent to `api.typesafe.ai` as well as to your LLM provider. TypeSafe states customer requests are not used for training; if that trade is not one you want, leave the key unset.
+## Things I got wrong on the first pass
 
-## Tests
+Worth writing down, because two of them were bad.
+
+The success-path debug log read `response.request_id`. That's a `cached_property` in the SDK which *raises* when the `x-typesafe-request-id` header is missing, and `getattr(obj, name, default)` only swallows `AttributeError`. Any proxy that strips the header would have taken the exception straight out of a function documented as never raising. Because the watcher aborts before marking messages seen, it would have re-fetched and re-crashed on the same email every 60 seconds, forever, silently. The tests didn't catch it because the fixture always set that header.
+
+The other one: I trusted the SDK's retry budget to bound wall-clock time. It doesn't. Tenacity decides whether to sleep again *before* sleeping, so the last attempt still gets a full request timeout on top of the budget. Measured against a blackholed endpoint, a "12 second" budget took 16 seconds. In the execution agent that call happens before every tool call inside a run the batch manager caps at 90 seconds, so roughly five dead Jev calls would have turned a fail-open guardrail into a user-visible timeout. Every call now carries a hard `asyncio.wait_for` deadline, tighter on the agent's hot path than on the watcher's.
+
+Three smaller ones: the guard meant to stop the search filter emptying a result set counted message ids it had never scored, so one hallucinated id defeated it; the injection check sat after an early return that fired when an unrelated answer was missing, so a dropped answer bypassed the security gate; and the SDK import guard caught only `ImportError`, which means a pydantic version clash inside the SDK would have stopped the server booting for people who never configured Jev.
+
+All five have regression tests now, in `tests/test_jev_regressions.py`. I found them by trying to break my own code and then by having a second pass go after it adversarially, which I recommend over re-reading your diff and feeling good about it.
+
+## Running it
+
+Same as upstream. Copy `.env.example` to `.env`, add your OpenRouter and Composio keys, then:
+
+```bash
+python3.10 -m venv .venv && source .venv/bin/activate
+pip install -r server/requirements.txt
+npm install --prefix web
+python -m server.server --reload
+npm run dev --prefix web   # separate terminal
+```
+
+To turn the typed decisions on, add a key from [console.typesafe.ai](https://console.typesafe.ai/):
+
+```bash
+TYPESAFE_API_KEY=...
+```
+
+Individual decisions can be switched off with `JEV_EMAIL_SCREENING=0`, `JEV_TOOL_GUARDRAIL=0`, `JEV_SEARCH_FILTER=0`. Deadlines, retries, the state size cap and the model are all in `.env.example`.
+
+Tests:
+
 ```bash
 pip install -r server/requirements-dev.txt
 python -m pytest
 ```
-The suite mocks both models — OpenRouter through `monkeypatch`, Jev through the SDK's `transport` seam with `httpx2.MockTransport` — so it needs no API keys and makes no network calls.
 
-## Project Layout
-- `server/` – FastAPI application and agents
-- `server/jev/` – optional typed-decision layer (questions, thresholds, decisions)
-- `web/` – Next.js app
-- `server/data/` – runtime data (ignored by git)
+73 of them, no network, no API keys. Jev is mocked through the SDK's documented `transport` seam with `httpx2.MockTransport`, so the tests exercise the SDK's real request serialisation and response validation, so a malformed question or a renamed answer field fails in CI rather than in production. OpenRouter is monkeypatched.
 
-## License
-MIT — see [LICENSE](LICENSE).
+## If you want to tune it
+
+Two files. `server/jev/questions.py` has every question, `server/jev/thresholds.py` has every threshold. That split is TypeSafe's own suggestion and it's a good one: you can audit the entire policy without reading a line of the code that acts on it.
+
+Before you trust my numbers, though:
+
+- They're my defaults, not truths. Jev is calibrated across a population of answers, not per answer, so the right cut points depend on your mail. Label a couple hundred messages and sweep.
+- `noul` answers have no `confidence` field. The probability *is* the confidence, and values near 0.5 are the uncertain region, which is why every gate here is a two-sided band rather than one cut point.
+- The model is pinned to `jev-1.13.0`. `jev-latest` moves when a release ships, and thresholds are calibrated against one model. Upgrade on purpose, then re-sweep.
+- No dates are ever sent to Jev. It reads dates as text, not as ordered quantities, so "is this due within 24 hours" is answered in Python. Same for arithmetic.
+
+## One thing to be aware of
+
+With `TYPESAFE_API_KEY` set, your email metadata and bodies go to `api.typesafe.ai` as well as to your LLM provider, and so do execution-agent tool arguments, drafts included. TypeSafe says customer requests aren't used for training. If that's not a trade you want to make for a self-hosted mail assistant, leave the key unset and the fork behaves like upstream.
+
+## Upstream
+
+All the interesting architecture here is Shlok's. The change is offered upstream as a pull request too; if it lands, this fork exists mainly to keep experimenting. Issues and PRs welcome either way.
+
+## Layout
+
+- `server/`: FastAPI app and agents
+- `server/jev/`: the typed-decision layer
+- `web/`: Next.js UI
+- `server/data/`: runtime data, gitignored
+
+MIT, same as upstream.
