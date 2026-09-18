@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from .agent import ExecutionAgent
 from .tools import get_tool_schemas, get_tool_registry
 from ...config import get_settings
+from ...jev import review_tool_call
 from ...openrouter_client import request_chat_completion
 from ...logging_config import logger
 
@@ -94,10 +95,20 @@ class ExecutionAgentRuntime:
                         messages.append(tool_message)
                         continue
 
-                    tools_executed.append(tool_name)
-                    logger.info(f"[{self.agent.name}] Executing tool: {tool_name}")
-
-                    success, result = await self._execute_tool(tool_name, tool_args)
+                    review = await review_tool_call(
+                        assignment=instructions,
+                        tool_name=tool_name,
+                        arguments=tool_args,
+                    )
+                    if review.held:
+                        logger.warning(
+                            f"[{self.agent.name}] Guardrail held tool {tool_name}: {review.reason}"
+                        )
+                        success, result = False, {"error": review.explain()}
+                    else:
+                        tools_executed.append(tool_name)
+                        logger.info(f"[{self.agent.name}] Executing tool: {tool_name}")
+                        success, result = await self._execute_tool(tool_name, tool_args)
 
                     if success:
                         logger.info(f"[{self.agent.name}] Tool {tool_name} completed successfully")
