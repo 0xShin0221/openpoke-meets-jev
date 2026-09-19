@@ -45,8 +45,26 @@ EMAIL_PROMPT_INJECTION: Final[float] = 0.70
 # Gated per action, not globally: the consequence of a wrong `send email` is
 # not the consequence of a wrong `list drafts`.
 # https://docs.typesafe.ai/patterns/confidence-routing
+#
+# Three rungs, not one gate. Only an irreversible call is ever held; everything
+# else is told to the agent and allowed to run. The shape is taken from
+# pi-warden (https://github.com/DevMortimer/pi-warden), whose calibration replay
+# over 17,160 guarded tool calls is the only public measurement of this kind:
+#
+#   * Its off-task signal ranked worst of four by AUC against user regret (0.51,
+#     versus 0.74 for "does this mutate state"), and off-task caused 56 of 139
+#     replay holds with zero user complaints. It therefore stopped holding on
+#     off-task entirely. We follow that: off-task steers, it never holds.
+#   * Its intent-mismatch signal was also weak (AUC 0.57). We keep a hold on it,
+#     but only for a call that cannot be undone.
+#
+# Those numbers come from one user's sessions with model-generated labels, and
+# the data is not public, so treat them as the best available evidence rather
+# than as settled. Ours are not calibrated at all yet; see docs/EVALUATION.md.
 TOOL_INTENT_MISMATCH_HOLD: Final[float] = 0.85
-TOOL_OFF_TASK_HOLD: Final[float] = 0.85
+TOOL_INTENT_MISMATCH_STEER: Final[float] = 0.60
+TOOL_OFF_TASK_STEER: Final[float] = 0.85
+TOOL_OFF_TASK_WARN: Final[float] = 0.60
 # Applied only to tools listed in IRREVERSIBLE_TOOLS below.
 TOOL_IRREVERSIBLE_HOLD: Final[float] = 0.70
 
@@ -81,7 +99,9 @@ __all__ = [
     "EMAIL_AUTOMATED_BULK",
     "EMAIL_PROMPT_INJECTION",
     "TOOL_INTENT_MISMATCH_HOLD",
-    "TOOL_OFF_TASK_HOLD",
+    "TOOL_INTENT_MISMATCH_STEER",
+    "TOOL_OFF_TASK_STEER",
+    "TOOL_OFF_TASK_WARN",
     "TOOL_IRREVERSIBLE_HOLD",
     "IRREVERSIBLE_TOOLS",
     "SEARCH_RELEVANCE_DROP",

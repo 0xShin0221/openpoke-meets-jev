@@ -90,6 +90,14 @@ class Settings(BaseModel):
     )
     jev_state_char_budget: int = Field(default=_env_int("JEV_STATE_CHAR_BUDGET", 24000))
     jev_search_max_candidates: int = Field(default=_env_int("JEV_SEARCH_MAX_CANDIDATES", 20))
+    # Stored probabilities are what make thresholds re-tunable offline: a sweep
+    # over the log costs nothing, a sweep that re-asks the model costs a run of
+    # the whole mailbox.
+    jev_decision_log_enabled: bool = Field(default=_env_flag("JEV_DECISION_LOG", True))
+    jev_decision_log_max_entries: int = Field(default=_env_int("JEV_DECISION_LOG_MAX_ENTRIES", 2000))
+    jev_decision_log_path: str = Field(
+        default=os.getenv("JEV_DECISION_LOG_PATH", "server/data/jev_decisions.jsonl")
+    )
     jev_email_screening_enabled: bool = Field(default=_env_flag("JEV_EMAIL_SCREENING", True))
     jev_tool_guardrail_enabled: bool = Field(default=_env_flag("JEV_TOOL_GUARDRAIL", True))
     jev_search_filter_enabled: bool = Field(default=_env_flag("JEV_SEARCH_FILTER", True))

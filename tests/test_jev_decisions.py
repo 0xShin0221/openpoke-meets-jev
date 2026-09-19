@@ -184,25 +184,55 @@ async def test_guardrail_holds_on_intent_mismatch(jev_env: None, jev_transport) 
     assert "intent_mismatch=0.93" in review.explain()
 
 
-async def test_guardrail_holds_off_task_only_when_irreversible(
-    jev_env: None, jev_transport
-) -> None:
-    held = await _review(
+async def test_off_task_steers_and_never_holds(jev_env: None, jev_transport) -> None:
+    # pi-warden's replay over 17,160 guarded calls found off-task the weakest of
+    # its four signals (AUC 0.51 against user regret) and the cause of 56 of 139
+    # holds with zero user complaints. It steers here; it must never hold.
+    steered = await _review(
         jev_transport, "GMAIL_SEND_EMAIL", intent_mismatch=0.2, off_task=0.95, irreversible=0.99
     )
-    allowed = await _review(
+    read = await _review(
         jev_transport, "GMAIL_LIST_DRAFTS", intent_mismatch=0.2, off_task=0.95, irreversible=0.05
     )
 
-    assert held.reason == "off_task_irreversible"
-    assert allowed.held is False, "reads must not be blocked for wandering off task"
+    assert (steered.verdict, steered.reason) == (d.STEER, "off_task_irreversible")
+    assert steered.held is False
+    assert steered.advisory is True
+    assert read.held is False, "reads must not be blocked for wandering off task"
+    assert read.verdict == d.WARN, "but the agent should still be told"
+
+
+async def test_intent_mismatch_holds_only_when_irreversible(
+    jev_env: None, jev_transport
+) -> None:
+    held = await _review(
+        jev_transport, "GMAIL_SEND_EMAIL", intent_mismatch=0.93, off_task=0.1, irreversible=0.99
+    )
+    steered = await _review(
+        jev_transport, "GMAIL_LIST_DRAFTS", intent_mismatch=0.93, off_task=0.1, irreversible=0.02
+    )
+
+    assert held.verdict == d.HOLD
+    assert steered.verdict == d.STEER, "a read that misreads the assignment is corrected, not blocked"
+
+
+async def test_warn_rung_fires_below_the_steer_bar(jev_env: None, jev_transport) -> None:
+    # The gap this closes: before the rungs existed, off_task=0.7 produced
+    # nothing at all, not even a line in the agent's context.
+    review = await _review(
+        jev_transport, "GMAIL_SEND_EMAIL", intent_mismatch=0.1, off_task=0.7, irreversible=0.99
+    )
+
+    assert (review.verdict, review.reason) == (d.WARN, "off_task")
+    assert review.advisory is True
+    assert "off_task=0.70" in review.advice()
 
 
 async def test_known_irreversible_tool_does_not_need_the_model_to_agree(
     jev_env: None, jev_transport
 ) -> None:
     # The allow-list is the source of truth for destructive tools; a low
-    # `irreversible` probability must not unlock the off-task gate.
+    # `irreversible` probability must not downgrade the rung.
     review = await _review(
         jev_transport, "GMAIL_SEND_EMAIL", intent_mismatch=0.2, off_task=0.95, irreversible=0.01
     )

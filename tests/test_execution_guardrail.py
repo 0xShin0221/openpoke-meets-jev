@@ -97,6 +97,25 @@ async def test_faithful_call_still_runs(jev_env: None, jev_transport, agent: Any
     assert executed == ["GMAIL_SEND_EMAIL"]
 
 
+async def test_advisory_call_runs_and_the_agent_is_told(
+    jev_env: None, jev_transport, agent: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A steered call must still execute, and the judgement must reach the agent
+    # in the tool result rather than vanishing into a log line.
+    runtime, executed = agent
+    jev_transport(noul_answers(intent_mismatch=0.2, off_task=0.95, irreversible=0.99))
+    recorded: list = []
+    monkeypatch.setattr(
+        runtime.agent, "record_tool_execution", lambda *args, **kwargs: recorded.append(args)
+    )
+
+    await runtime.execute(ASSIGNMENT)
+
+    assert executed == ["GMAIL_SEND_EMAIL"]
+    assert any("guardrail_note" in str(args) for args in recorded)
+    assert any("off_task=0.95" in str(args) for args in recorded)
+
+
 async def test_jev_outage_does_not_block_the_agent(
     jev_env: None, jev_transport, agent: Any
 ) -> None:

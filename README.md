@@ -16,11 +16,31 @@ Three places. All of them were already decisions dressed up as text generation.
 
 That fourth question is there because email bodies are attacker-controlled text that ends up inside an agent prompt. If a message reads as a prompt injection, the watcher does not forward it to the interaction agent, no matter how urgent it claims to be. TypeSafe's own RAG cookbook scores an injected forum post at 0.99 on the same question, which is a better signal than anything I'd get out of a system prompt telling a model to be careful.
 
-**Tool-call guardrail.** Execution agents send email. Before an irreversible Gmail tool runs, three questions check the call against the assignment the agent was given: does this contradict what it was asked to do, is it reaching for people and threads nobody mentioned, can the effect be undone. A call that trips the first bar doesn't run. It comes back to the agent as a tool error so it can correct itself. The user never sees a refusal, and reads are never blocked for wandering off task, because an agent that can't look things up is useless.
+**Tool-call guardrail.** Execution agents send email. Before a tool runs, four questions check the call against the assignment the agent was given: does this contradict what it was asked to do, is it reaching for people and threads nobody mentioned, can the effect be undone, does it change stored state at all.
+
+There are three rungs above "allow" and only one of them stops anything. A call is held only when it reads as contradicting the assignment *and* the effect can't be undone; then it comes back to the agent as a tool error so it can correct itself. Everything else steers or warns: the call runs, and the judgement rides along in the tool result. The user never sees a refusal, and reads are never blocked for wandering off task, because an agent that can't look things up is useless.
+
+The rungs are shaped by [pi-warden](https://github.com/DevMortimer/pi-warden), whose calibration replay over 17,160 guarded tool calls is the only public measurement of this kind. It found off-task the weakest of four signals against user regret (AUC 0.51, against 0.74 for "does this mutate state") and the cause of 56 of 139 replay holds with zero user complaints, so it stopped holding on off-task entirely. I follow that. The fourth question, `mutates`, is asked and logged but nothing gates on it yet — batched questions are nearly free, and I'd rather have it in the log before I calibrate than guess at a threshold for it.
 
 **Search relevance.** The email-search task ends with an LLM picking message ids out of a list. One batched Jev call re-checks that selection against the original request and drops results that clearly don't answer it. It will never empty a result set: if everything scores low, that says something about the query, not about any one email, so the LLM's picks stand.
 
+Every decision is written to a bounded log in `server/data/` with its probabilities, the verdict and the reason, but not the email body. That's there because thresholds are only re-tunable offline if the numbers were stored: a sweep over the log costs nothing, a sweep that has to re-ask the model costs a run of the whole mailbox. `JEV_DECISION_LOG=0` turns it off.
+
 Everything is optional. With no `TYPESAFE_API_KEY` set, every entry point returns "undecided" or "allow" and you get the original OpenPoke behaviour, byte for byte. I kept the old classifier intact rather than rewriting it, so the fallback path is the code that was already working.
+
+## What I haven't measured
+
+This matters more than the section above, so it's not buried at the bottom.
+
+**I have no accuracy numbers, and I'm not going to imply any.** There's no labelled set yet, and the 84 tests verify routing logic, not judgement quality. Nobody in the Jev ecosystem has published an email-triage evaluation either, so there's nothing to borrow.
+
+**The cost story is weaker than it looks.** Only the skip path saves anything. On the surface path I make a Jev call *and* a summarisation call, and if the summary comes back empty I fall through to the original tool-calling classifier anyway. So the best case there is one completion replaced by Jev plus one completion, and the worst case is all three. Unmeasured, and plausibly net-negative on that path.
+
+**The gate may be looser than the boolean it replaced.** Security codes surface at 0.60 while general importance needs 0.75, and the uncertain band still hands the email to the original classifier, which can also say yes. The set of mail that reaches you may be a *superset* of what the old Sonnet boolean surfaced. If so, I've increased notification volume while describing the change as a filter. That's the first thing I intend to measure, because it's the failure mode that actually matters: the clinical alarm-fatigue literature is unambiguous that a noisy alarm gets muted, and then the real ones are missed too.
+
+**The injection question is a filter, not a security boundary** — [jev-mcp](https://github.com/blakestone-x/jev-mcp)'s phrasing and it's the right one. It's also a *suppression* gate: a false positive means you never learn a real message existed. TypeSafe's 0.99 detection figure is theirs, on their data, on a forum post, not on email.
+
+`docs/EVALUATION.md` is the plan for fixing all of this: what to measure, what the numbers would have to look like to support a claim, and which corpora can legally be redistributed.
 
 ## Things I got wrong on the first pass
 
@@ -61,7 +81,7 @@ pip install -r server/requirements-dev.txt
 python -m pytest
 ```
 
-73 of them, no network, no API keys. Jev is mocked through the SDK's documented `transport` seam with `httpx2.MockTransport`, so the tests exercise the SDK's real request serialisation and response validation, so a malformed question or a renamed answer field fails in CI rather than in production. OpenRouter is monkeypatched.
+84 of them, no network, no API keys. Jev is mocked through the SDK's documented `transport` seam with `httpx2.MockTransport`, so the tests exercise the SDK's real request serialisation and response validation, so a malformed question or a renamed answer field fails in CI rather than in production. OpenRouter is monkeypatched.
 
 ## If you want to tune it
 

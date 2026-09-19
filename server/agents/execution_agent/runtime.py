@@ -110,6 +110,16 @@ class ExecutionAgentRuntime:
                         logger.info(f"[{self.agent.name}] Executing tool: {tool_name}")
                         success, result = await self._execute_tool(tool_name, tool_args)
 
+                        if review.advisory:
+                            # The call ran. The agent is the right consumer of
+                            # the judgement, so it rides along with the result
+                            # rather than interrupting the user.
+                            logger.info(
+                                f"[{self.agent.name}] Guardrail {review.verdict} on "
+                                f"{tool_name}: {review.reason}"
+                            )
+                            result = self._attach_guardrail_note(result, review.advice())
+
                     if success:
                         logger.info(f"[{self.agent.name}] Tool {tool_name} completed successfully")
                         record_payload = self._safe_json_dump(result)
@@ -230,6 +240,15 @@ class ExecutionAgentRuntime:
                 "error": error_detail,
             }
         return self._safe_json_dump(payload)
+
+    # Attach an advisory guardrail note to a tool result without hiding it
+    def _attach_guardrail_note(self, result: Any, note: str) -> Any:
+        """Return the tool result with the guardrail's note alongside it."""
+        if isinstance(result, dict):
+            merged = dict(result)
+            merged["guardrail_note"] = note
+            return merged
+        return {"result": result, "guardrail_note": note}
 
     # Execute tool function from registry with error handling and async support
     async def _execute_tool(self, tool_name: str, arguments: Dict) -> Tuple[bool, Any]:

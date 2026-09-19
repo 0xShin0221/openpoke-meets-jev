@@ -17,6 +17,7 @@ from . import questions as q
 from . import state as s
 from . import thresholds as t
 from .client import ask, is_enabled, noul
+from .decision_log import get_decision_log
 
 # ----------------------------------------------------------------------
 # Email screening
@@ -61,6 +62,7 @@ async def screen_email(
     settings = get_settings()
     if not settings.jev_email_screening_enabled or not is_enabled():
         return UNDECIDED_EMAIL
+
 
     response = await ask(
         state=s.email_state(
@@ -119,17 +121,49 @@ async def screen_email(
     return EmailScreening(verdict=UNDECIDED, reason="uncertain", probabilities=probabilities)
 
 
+# Write one screening decision to the log
+def record_screening(
+    screening: EmailScreening,
+    *,
+    message_id: Optional[str] = None,
+    sender: Optional[str] = None,
+    subject: Optional[str] = None,
+) -> None:
+    """Persist a screening decision so thresholds can be swept offline later."""
+
+    if not screening.probabilities:
+        # Nothing was measured, so there is nothing to re-threshold.
+        return
+    get_decision_log().record(
+        kind="email_screening",
+        verdict=screening.verdict,
+        reason=screening.reason,
+        probabilities=screening.probabilities,
+        message_id=message_id,
+        sender=sender,
+        subject=subject,
+    )
+
+
 # ----------------------------------------------------------------------
 # Execution-agent tool guardrail
 # ----------------------------------------------------------------------
 
 ALLOW = "allow"
+WARN = "warn"
+STEER = "steer"
 HOLD = "hold"
 
 
 @dataclass(frozen=True)
 class ToolCallReview:
-    """Advisory verdict on a pending tool call."""
+    """Advisory verdict on a pending tool call.
+
+    Three rungs above ``allow``. Only ``hold`` stops the call; ``steer`` and
+    ``warn`` let it run and put the judgement into the agent's next tool result,
+    because the agent is the right consumer of a correction and the user is not
+    an approval button.
+    """
 
     verdict: str
     reason: str
@@ -141,15 +175,34 @@ class ToolCallReview:
 
         return self.verdict == HOLD
 
+    @property
+    def advisory(self) -> bool:
+        """Return ``True`` when the call runs but the agent should be told why."""
+
+        return self.verdict in (WARN, STEER)
+
+    def _detail(self) -> str:
+        return ", ".join(f"{key}={value:.2f}" for key, value in sorted(self.probabilities.items()))
+
     def explain(self) -> str:
         """Return the message handed back to the agent when a call is held."""
 
-        detail = ", ".join(f"{key}={value:.2f}" for key, value in sorted(self.probabilities.items()))
         return (
             f"Blocked by the typed-decision guardrail ({self.reason}). "
             "Re-read your assignment and either correct the arguments or "
-            f"explain what you intend to do. [{detail}]"
+            f"explain what you intend to do. [{self._detail()}]"
         )
+
+    def advice(self) -> str:
+        """Return the note appended to a tool result when the call still runs."""
+
+        if self.verdict == STEER:
+            lead = "The typed-decision guardrail flagged this call"
+            tail = "It ran anyway. Check it against your assignment before relying on the result."
+        else:
+            lead = "The typed-decision guardrail noted this call"
+            tail = "No action needed unless it looks wrong to you."
+        return f"{lead} ({self.reason}). {tail} [{self._detail()}]"
 
 
 ALLOWED_TOOL_CALL = ToolCallReview(verdict=ALLOW, reason="jev_unavailable")
@@ -164,9 +217,9 @@ async def review_tool_call(
 ) -> ToolCallReview:
     """Judge whether a tool call matches the assignment before it runs.
 
-    The verdict is advisory and fails open. A held call is reported back to the
-    agent as a tool error so it can correct itself; it is never surfaced to the
-    user as a refusal.
+    The verdict is advisory and fails open. Only an irreversible call is ever
+    held, and a held call is reported back to the agent as a tool error so it
+    can correct itself; it is never surfaced to the user as a refusal.
     """
 
     settings = get_settings()
@@ -195,23 +248,40 @@ async def review_tool_call(
         if value is not None:
             probabilities[key] = value
 
-    mismatch = probabilities.get("intent_mismatch")
-    if mismatch is not None and mismatch >= t.TOOL_INTENT_MISMATCH_HOLD:
-        return ToolCallReview(verdict=HOLD, reason="intent_mismatch", probabilities=probabilities)
-
     irreversible_answer = probabilities.get("irreversible")
     irreversible = tool_name in t.IRREVERSIBLE_TOOLS or (
         irreversible_answer is not None and irreversible_answer >= t.TOOL_IRREVERSIBLE_HOLD
     )
 
-    # Off-task work is only worth stopping when it cannot be undone; gating
-    # every read on it would make the agent useless.
-    if irreversible:
-        off_task = probabilities.get("off_task")
-        if off_task is not None and off_task >= t.TOOL_OFF_TASK_HOLD:
-            return ToolCallReview(verdict=HOLD, reason="off_task_irreversible", probabilities=probabilities)
+    mismatch = probabilities.get("intent_mismatch")
+    off_task = probabilities.get("off_task")
 
-    return ToolCallReview(verdict=ALLOW, reason="passed", probabilities=probabilities)
+    review: ToolCallReview
+    if mismatch is not None and mismatch >= t.TOOL_INTENT_MISMATCH_HOLD and irreversible:
+        # The only rung that stops a call, and only for something unrecoverable.
+        review = ToolCallReview(verdict=HOLD, reason="intent_mismatch", probabilities=probabilities)
+    elif mismatch is not None and mismatch >= t.TOOL_INTENT_MISMATCH_HOLD:
+        review = ToolCallReview(verdict=STEER, reason="intent_mismatch", probabilities=probabilities)
+    elif irreversible and off_task is not None and off_task >= t.TOOL_OFF_TASK_STEER:
+        review = ToolCallReview(
+            verdict=STEER, reason="off_task_irreversible", probabilities=probabilities
+        )
+    elif mismatch is not None and mismatch >= t.TOOL_INTENT_MISMATCH_STEER:
+        review = ToolCallReview(verdict=WARN, reason="intent_mismatch", probabilities=probabilities)
+    elif off_task is not None and off_task >= t.TOOL_OFF_TASK_WARN:
+        review = ToolCallReview(verdict=WARN, reason="off_task", probabilities=probabilities)
+    else:
+        review = ToolCallReview(verdict=ALLOW, reason="passed", probabilities=probabilities)
+
+    if probabilities:
+        get_decision_log().record(
+            kind="tool_guardrail",
+            verdict=review.verdict,
+            reason=review.reason,
+            probabilities=probabilities,
+            tool_name=tool_name,
+        )
+    return review
 
 
 # ----------------------------------------------------------------------
@@ -295,6 +365,8 @@ async def filter_search_results(
 
 __all__ = [
     "ALLOW",
+    "WARN",
+    "STEER",
     "EmailScreening",
     "HOLD",
     "SKIP",
@@ -303,6 +375,7 @@ __all__ = [
     "ToolCallReview",
     "UNDECIDED",
     "filter_search_results",
+    "record_screening",
     "review_tool_call",
     "screen_email",
 ]

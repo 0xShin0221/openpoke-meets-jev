@@ -194,10 +194,32 @@ TOOL_IRREVERSIBLE = {
     },
 }
 
+# Asked but not yet gated on. pi-warden's calibration replay found "does this
+# mutate state" the strongest of its four signals against user regret (AUC 0.74,
+# versus 0.57 for intent mismatch and 0.51 for off-task), so it is worth having
+# in the log before we calibrate our own thresholds. Batched questions cost
+# almost nothing: the state is transmitted once and output tokens are free.
+# https://docs.typesafe.ai/cookbooks/parallel_questions
+TOOL_MUTATES = {
+    "type": "noul",
+    "instructions": "Running this tool call changes stored state rather than only reading it.",
+    "criteria": {
+        "true": {
+            "what": "Creates, edits, moves, labels, sends, or deletes something.",
+            "examples": ["Sending a message", "Creating a draft", "Applying a label"],
+        },
+        "false": {
+            "what": "Only reads or lists.",
+            "examples": ["Listing messages", "Fetching a thread", "Searching"],
+        },
+    },
+}
+
 TOOL_QUESTIONS: Dict[str, Dict[str, Any]] = {
     "intent_mismatch": TOOL_INTENT_MISMATCH,
     "off_task": TOOL_OFF_TASK,
     "irreversible": TOOL_IRREVERSIBLE,
+    "mutates": TOOL_MUTATES,
 }
 
 # ----------------------------------------------------------------------
@@ -268,6 +290,7 @@ __all__ = [
     "TOOL_INTENT_MISMATCH",
     "TOOL_OFF_TASK",
     "TOOL_IRREVERSIBLE",
+    "TOOL_MUTATES",
     "search_relevance_question",
     "search_relevance_questions",
     "relevance_key",

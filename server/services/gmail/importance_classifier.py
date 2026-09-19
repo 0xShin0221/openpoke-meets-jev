@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 from .processing import ProcessedEmail
 from ...config import get_settings
-from ...jev import SKIP, SURFACE, screen_email
+from ...jev import SKIP, SURFACE, record_screening, screen_email
 from ...logging_config import logger
 from ...openrouter_client import OpenRouterError, request_chat_completion
 
@@ -103,6 +103,13 @@ async def classify_email_importance(email: ProcessedEmail) -> Optional[str]:
         labels=email.label_ids,
         has_attachments=email.has_attachments,
         attachment_filenames=email.attachment_filenames,
+    )
+
+    record_screening(
+        screening,
+        message_id=email.id,
+        sender=email.sender,
+        subject=email.subject,
     )
 
     if screening.verdict == SKIP:

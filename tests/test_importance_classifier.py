@@ -178,3 +178,21 @@ async def test_injection_attempt_is_suppressed(
 
     assert summary is None
     assert llm_calls == []
+
+
+async def test_every_screened_email_lands_in_the_decision_log(
+    jev_env: None, jev_transport, llm_calls: List[Dict[str, Any]], isolated_decision_log
+) -> None:
+    """Without this the probabilities are unrecoverable and nothing is tunable."""
+
+    jev_transport(
+        noul_answers(important=0.05, security_code=0.0, automated_bulk=0.97, prompt_injection=0.0)
+    )
+
+    await ic.classify_email_importance(_email(id="msg-42", subject="50% off"))
+
+    entries = isolated_decision_log.entries()
+    assert len(entries) == 1
+    assert entries[0]["message_id"] == "msg-42"
+    assert entries[0]["verdict"] == "skip"
+    assert entries[0]["probabilities"]["important"] == 0.05

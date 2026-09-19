@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
 
 from server import config as config_module  # noqa: E402
 from server.jev import client as jev_client  # noqa: E402
+from server.jev import decision_log as jev_decision_log  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +47,18 @@ def reload_settings() -> Iterator[Callable[[], None]]:
     _reload()
     yield _reload
     jev_client.set_client(None)
+    jev_decision_log.set_decision_log(None)
     _reload()
+
+
+@pytest.fixture(autouse=True)
+def isolated_decision_log(tmp_path: Path) -> Iterator[Any]:
+    """Point the decision log at a temp file so tests never touch server/data."""
+
+    log = jev_decision_log.DecisionLog(tmp_path / "jev_decisions.jsonl")
+    jev_decision_log.set_decision_log(log)
+    yield log
+    jev_decision_log.set_decision_log(None)
 
 
 @pytest.fixture
