@@ -97,7 +97,7 @@ async def test_security_code_beats_a_low_importance_score(jev_env: None, jev_tra
 
 async def test_prompt_injection_outranks_everything(jev_env: None, jev_transport) -> None:
     # Attacker-authored text that also looks urgent must never be forwarded to
-    # the interaction agent.
+    # the interaction agent — but it is quarantined, not silently dropped.
     result = await _screen(
         jev_transport,
         important=0.99,
@@ -106,7 +106,34 @@ async def test_prompt_injection_outranks_everything(jev_env: None, jev_transport
         prompt_injection=0.95,
     )
 
-    assert (result.verdict, result.reason) == (d.SKIP, "prompt_injection")
+    assert (result.verdict, result.reason) == (d.QUARANTINE, "prompt_injection")
+    assert result.decided is True
+
+
+async def test_silence_is_what_a_suppression_attacker_is_buying(
+    jev_env: None, jev_transport, monkeypatch: pytest.MonkeyPatch, reload_settings
+) -> None:
+    """Dropping a flagged email silently hands the attacker the outcome.
+
+    Measured on this repo's own corpus: appending override text silenced an
+    email 95.3% of the time [93.1, 97.2] across all 12 carriers, the one-time
+    code included. Quarantine is therefore the default, and the old behaviour
+    has to be asked for explicitly.
+    """
+
+    default = await _screen(
+        jev_transport, important=0.5, security_code=0.0, automated_bulk=0.0,
+        prompt_injection=0.95,
+    )
+    assert default.verdict == d.QUARANTINE
+
+    monkeypatch.setenv("JEV_QUARANTINE_INJECTIONS", "0")
+    reload_settings()
+    opted_out = await _screen(
+        jev_transport, important=0.5, security_code=0.0, automated_bulk=0.0,
+        prompt_injection=0.95,
+    )
+    assert opted_out.verdict == d.SKIP
 
 
 async def test_missing_importance_answer_is_undecided(jev_env: None, jev_transport) -> None:

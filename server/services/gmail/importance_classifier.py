@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 from .processing import ProcessedEmail
 from ...config import get_settings
-from ...jev import SKIP, SURFACE, record_screening, screen_email
+from ...jev import QUARANTINE, SKIP, SURFACE, record_screening, screen_email
 from ...logging_config import logger
 from ...openrouter_client import OpenRouterError, request_chat_completion
 
@@ -112,6 +112,17 @@ async def classify_email_importance(email: ProcessedEmail) -> Optional[str]:
         subject=email.subject,
     )
 
+    if screening.verdict == QUARANTINE:
+        logger.warning(
+            "Email quarantined by typed screening",
+            extra={
+                "message_id": email.id,
+                "reason": screening.reason,
+                "probabilities": screening.probabilities,
+            },
+        )
+        return _quarantine_notice(email)
+
     if screening.verdict == SKIP:
         logger.debug(
             "Email skipped by typed screening",
@@ -139,6 +150,25 @@ async def classify_email_importance(email: ProcessedEmail) -> Optional[str]:
         # than dropping an email the screen already flagged as important.
 
     return await _classify_with_llm(email)
+
+
+def _quarantine_notice(email: ProcessedEmail) -> str:
+    """Return the fixed notice shown when a body is withheld.
+
+    Assembled in code, never by a model, and it carries no body. Sender and
+    subject are attacker-controlled for external mail, so both are clipped and
+    labelled as unverified; the point is that the user learns a message exists
+    rather than that they learn what it says.
+    """
+
+    sender = (email.sender or "unknown sender")[:120]
+    subject = (email.subject or "(no subject)")[:120]
+    return (
+        "A message was withheld because its body reads as an attempt to give "
+        "instructions to an assistant rather than to you. Its contents have not "
+        f"been read to me. Unverified sender: {sender}. Unverified subject: "
+        f"{subject}. Open it yourself if you were expecting it."
+    )
 
 
 async def _summarize_email(email: ProcessedEmail) -> Optional[str]:

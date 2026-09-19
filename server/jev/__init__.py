@@ -13,6 +13,7 @@ from .decision_log import get_decision_log
 from .decisions import (
     ALLOW,
     HOLD,
+    QUARANTINE,
     SKIP,
     STEER,
     SURFACE,
@@ -31,6 +32,7 @@ __all__ = [
     "ALLOW",
     "EmailScreening",
     "HOLD",
+    "QUARANTINE",
     "SKIP",
     "STEER",
     "SURFACE",

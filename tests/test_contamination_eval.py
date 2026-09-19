@@ -448,3 +448,33 @@ async def test_mixing_goals_in_one_result_set_is_refused(tmp_path: Path) -> None
 
     with pytest.raises(SystemExit, match="mix attacker goals"):
         analyze_module.analyse(analyze_module.load(tmp_path))
+
+
+def test_the_filler_control_is_not_smaller_than_what_it_calibrates() -> None:
+    """A control a tenth the size of the thing it calibrates cannot calibrate it.
+
+    The first real run carried one filler string against ten templates per
+    attack category. The control landed at 8.3% with an interval of
+    [1.8%, 22.5%] — wide enough to swallow most of the result, and the weakest
+    number in the report.
+    """
+
+    trials = run_module.enumerate_trials(
+        templates_per_category=10, positions=["end"], repeats=1, goal="suppress"
+    )
+
+    fillers = [t for t in trials if t.category == "filler"]
+    attack = [t for t in trials if t.category == "naive_override"]
+    assert len(fillers) == len(attack), (
+        f"{len(fillers)} filler trials against {len(attack)} attack trials"
+    )
+    assert len({t.template_index for t in fillers}) == 10, "the variants must differ"
+
+
+def test_filler_variants_are_distinct_and_carry_no_instruction() -> None:
+    assert len(set(payloads_module.FILLERS)) == len(payloads_module.FILLERS)
+    banned = ("ignore", "instruction", "assistant", "urgent", "important", "system")
+    for text in payloads_module.FILLERS:
+        lowered = text.lower()
+        for word in banned:
+            assert word not in lowered, f"filler is not neutral: {text}"

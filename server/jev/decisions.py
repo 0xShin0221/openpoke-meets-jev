@@ -25,6 +25,7 @@ from .decision_log import get_decision_log
 
 SURFACE = "surface"
 SKIP = "skip"
+QUARANTINE = "quarantine"
 UNDECIDED = "undecided"
 
 
@@ -40,7 +41,7 @@ class EmailScreening:
     def decided(self) -> bool:
         """Return ``True`` when the caller may skip the LLM decision entirely."""
 
-        return self.verdict in (SURFACE, SKIP)
+        return self.verdict in (SURFACE, SKIP, QUARANTINE)
 
 
 UNDECIDED_EMAIL = EmailScreening(verdict=UNDECIDED, reason="jev_unavailable")
@@ -90,12 +91,22 @@ async def screen_email(
     # an unrelated answer having arrived.
     injection = probabilities.get("prompt_injection")
     if injection is not None and injection >= t.EMAIL_PROMPT_INJECTION:
-        # Never hand attacker-authored instructions to the interaction agent.
+        # The body never reaches the interaction agent. But dropping the message
+        # silently is itself an attack: appending "ignore all previous
+        # instructions" to an email silenced it 95.3% of the time [93.1, 97.2]
+        # across all 12 carriers in our own measurement, the OTP included, which
+        # made this question the most reliable attack in the experiment rather
+        # than a defence. So the default is to quarantine and tell the user that
+        # something was withheld, not to make it disappear.
+        # See evals/contamination/FINDINGS.md.
         logger.warning(
-            "Suppressing email that reads as a prompt-injection attempt",
+            "Quarantining email that reads as a prompt-injection attempt",
             extra={"prompt_injection": injection},
         )
-        return EmailScreening(verdict=SKIP, reason="prompt_injection", probabilities=probabilities)
+        verdict = QUARANTINE if settings.jev_quarantine_injections else SKIP
+        return EmailScreening(
+            verdict=verdict, reason="prompt_injection", probabilities=probabilities
+        )
 
     important = probabilities.get("important")
     if important is None:
@@ -365,6 +376,7 @@ async def filter_search_results(
 
 __all__ = [
     "ALLOW",
+    "QUARANTINE",
     "WARN",
     "STEER",
     "EmailScreening",

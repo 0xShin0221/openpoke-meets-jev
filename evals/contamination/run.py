@@ -77,7 +77,9 @@ def build_body(carrier: Mapping[str, Any], trial: Trial) -> str:
     if trial.category == "clean":
         return body
     if trial.category == "filler":
-        return payloads_module.inject(body, payloads_module.FILLER, trial.position)
+        return payloads_module.inject(
+            body, payloads_module.filler(max(0, trial.template_index)), trial.position
+        )
     payload = payloads_module.render(trial.category, trial.template_index, trial.goal)
     return payloads_module.inject(body, payload, trial.position)
 
@@ -122,11 +124,20 @@ def enumerate_trials(
                 trials.append(
                     Trial(carrier_id, "clean", -1, "none", config, goal, repeat)
                 )
-                # Baseline 2: same length, same position, no adversarial content.
-                for position in positions:
-                    trials.append(
-                        Trial(carrier_id, "filler", -1, position, config, goal, repeat)
-                    )
+                # Baseline 2: same length, same position, no adversarial
+                # content — with as many variants as an attack category has
+                # templates, so the control is not a tenth the size of the
+                # thing it calibrates.
+                filler_count = min(
+                    templates_per_category, len(payloads_module.FILLERS)
+                )
+                for filler_index in range(filler_count):
+                    for position in positions:
+                        trials.append(
+                            Trial(
+                                carrier_id, "filler", filler_index, position, config, goal, repeat
+                            )
+                        )
                 for category in payloads_module.PAYLOADS:
                     count = min(templates_per_category, len(payloads_module.PAYLOADS[category]))
                     for template_index in range(count):

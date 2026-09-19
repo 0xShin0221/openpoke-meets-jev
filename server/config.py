@@ -93,6 +93,11 @@ class Settings(BaseModel):
     # Stored probabilities are what make thresholds re-tunable offline: a sweep
     # over the log costs nothing, a sweep that re-asks the model costs a run of
     # the whole mailbox.
+    # An email that reads as an injection attempt is quarantined rather than
+    # dropped: the body is withheld from the agent, but the user is told a
+    # message arrived. Set to 0 for the older silent-drop behaviour, knowing
+    # that silence is what a suppression attacker is buying.
+    jev_quarantine_injections: bool = Field(default=_env_flag("JEV_QUARANTINE_INJECTIONS", True))
     jev_decision_log_enabled: bool = Field(default=_env_flag("JEV_DECISION_LOG", True))
     jev_decision_log_max_entries: int = Field(default=_env_int("JEV_DECISION_LOG_MAX_ENTRIES", 2000))
     jev_decision_log_path: str = Field(
