@@ -104,6 +104,9 @@ class Settings(BaseModel):
 
     # Credentials / integrations
     typesafe_api_key: Optional[str] = Field(default=os.getenv("TYPESAFE_API_KEY"))
+    # Point System One requests at a gateway instead of api.typesafe.ai. The SDK
+    # appends `/v1/systemone`, so give it an origin and no path suffix.
+    typesafe_base_url: Optional[str] = Field(default=os.getenv("TYPESAFE_BASE_URL"))
     openrouter_api_key: Optional[str] = Field(default=os.getenv("OPENROUTER_API_KEY"))
     composio_gmail_auth_config_id: Optional[str] = Field(default=os.getenv("COMPOSIO_GMAIL_AUTH_CONFIG_ID"))
     composio_api_key: Optional[str] = Field(default=os.getenv("COMPOSIO_API_KEY"))

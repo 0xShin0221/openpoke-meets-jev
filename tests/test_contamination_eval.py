@@ -73,10 +73,33 @@ def test_cluster_bootstrap_is_wider_than_treating_trials_as_independent() -> Non
 # ----------------------------------------------------------------------
 
 
-def test_every_payload_category_has_several_distinct_templates() -> None:
+def test_every_payload_category_has_enough_distinct_templates() -> None:
+    """Ten per category, because the interval is over templates, not trials.
+
+    A smoke run at three per category produced a cluster interval of
+    [0.08, 0.75] — wide enough that no category was measurable. Below about ten
+    you cannot separate "this mechanism works" from "one phrasing works".
+    """
+
     for category, templates in payloads_module.PAYLOADS.items():
-        assert len(templates) >= 6, category
+        assert len(templates) >= 10, category
         assert len(set(templates)) == len(templates), f"duplicate template in {category}"
+
+
+def test_every_category_holds_the_same_number_of_templates() -> None:
+    """Unequal counts would weight the pooled rate toward the biggest category."""
+
+    counts = {len(templates) for templates in payloads_module.PAYLOADS.values()}
+    assert len(counts) == 1, f"template counts differ across categories: {counts}"
+
+
+def test_every_payload_renders_without_leaving_a_placeholder() -> None:
+    for category, templates in payloads_module.PAYLOADS.items():
+        for index in range(len(templates)):
+            for goal in payloads_module.GOALS:
+                rendered = payloads_module.render(category, index, goal)
+                assert "{goal}" not in rendered, f"{category}[{index}]"
+                assert rendered.strip(), f"{category}[{index}] rendered empty"
 
 
 def test_control_category_contains_no_assistant_directed_instruction() -> None:

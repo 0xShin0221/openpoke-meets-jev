@@ -26,9 +26,9 @@ TYPESAFE_API_KEY=... python -m evals.contamination.run
 python -m evals.contamination.analyze
 ```
 
-The default grid is 12 carriers × 9 categories × 6 templates × 3 positions × 2
-question configurations × 3 repeats, plus two baselines per cell: **11,952
-trials, roughly $0.50** at Jev's $0.042 per 1M input tokens with output free.
+The default grid is 12 carriers × 9 categories × 10 templates × 3 positions × 2
+question configurations × 3 repeats, plus two baselines per cell: **19,440
+trials, roughly $0.82** at Jev's $0.042 per 1M input tokens with output free.
 Every response is cached by a hash of the exact request, so the run is resumable
 and the analysis re-runs for nothing. The API key is read from the environment
 and never written to the cache.
@@ -41,8 +41,11 @@ asks all four email questions; `without_injection_question` drops
 differently between them, the questions are leaking into each other. That single
 comparison is the experiment; everything else is controls.
 
-**Nine categories by mechanism, not by wording** (`payloads.py`), because a
-category represented by one phrasing measures that phrasing. The headline class
+**Nine categories by mechanism, not by wording** (`payloads.py`), ten templates
+each, because a category represented by one phrasing measures that phrasing. Ten
+is not arbitrary: a smoke run at three per category produced a cluster interval
+of [0.08, 0.75], wide enough that no category was measurable, because the
+interval is over templates rather than trials. The headline class
 is `cross_question_redirection`, which names the other question explicitly and
 asks for divergent answers. `detector_aware_conditional` is DataFlip-shaped.
 `typed_field_targeting` speaks the schema, which is OWASP AITG-APP-01's
@@ -94,7 +97,7 @@ Stated up front rather than discovered by a reader.
   version invalidates every number here.
 - Payload templates are ours. Human adversarial phrasing has a distributional
   shape we did not invent, and a future version should re-template phrasings
-  from the Lakera Gandalf sets rather than relying on six per category.
+  from the Lakera Gandalf sets rather than relying on ten written in one sitting.
 - The importance threshold used for "crossed the bar" is our current
   uncalibrated 0.75. A different bar moves every rate. The stored probabilities
   make re-analysis at another bar free.

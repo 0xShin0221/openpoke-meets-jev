@@ -75,6 +75,13 @@ async def get_client() -> Optional[Any]:
         if _client is not None:
             return _client
         settings = get_settings()
+        extra: Dict[str, Any] = {}
+        if settings.typesafe_base_url:
+            # Routing through a gateway (Vercel's AI Gateway, Neon's, a company
+            # proxy) is a supported deployment: the SDK appends `/v1/systemone`
+            # to whatever origin it is given. Passed explicitly rather than left
+            # to the SDK's own env var so the setting is visible in the code.
+            extra["base_url"] = settings.typesafe_base_url
         try:
             _client = AsyncTypeSafeClient(
                 api_key=settings.typesafe_api_key,
@@ -87,6 +94,7 @@ async def get_client() -> Optional[Any]:
                     max_retries=settings.jev_max_retries,
                     timeout=settings.jev_retry_budget_seconds,
                 ),
+                **extra,
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning(

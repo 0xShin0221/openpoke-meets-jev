@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 import pytest
 
+from server import config as config_module
 from server.jev import client as jev_client
 from server.jev import questions as q
 
@@ -119,3 +120,93 @@ async def test_cancellation_is_not_swallowed(jev_env: None) -> None:
         await jev_client.ask(
             state={"subject": "hello"}, questions=q.EMAIL_QUESTIONS, purpose="test"
         )
+
+
+async def test_requests_go_to_a_gateway_when_one_is_configured(
+    jev_env: None, monkeypatch, reload_settings
+) -> None:
+    """A gateway is a supported deployment, and the path suffix is the trap.
+
+    The SDK appends `/v1/systemone` to whatever origin it is given, so a base
+    URL that already ends in `/v1` silently produces `/v1/v1/systemone`.
+    """
+
+    import httpx2
+    from typesafe_sdk import AsyncTypeSafeClient
+
+    monkeypatch.setenv("TYPESAFE_BASE_URL", "https://gateway.example")
+    reload_settings()
+    # Settings captured the value; now take the variable back out of the
+    # environment so the SDK cannot read it directly. The only remaining route
+    # to the gateway is our own code passing base_url, which is what this test
+    # is for — with the variable left set, the test would pass even if the
+    # client ignored the setting entirely.
+    monkeypatch.delenv("TYPESAFE_BASE_URL", raising=False)
+    # Read through the module, not a name bound at import time: the settings
+    # object is rebuilt on reload and a stale reference would read None here.
+    assert config_module.get_settings().typesafe_base_url == "https://gateway.example"
+
+    seen: Dict[str, Any] = {}
+
+    def handler(request: "httpx2.Request") -> "httpx2.Response":
+        seen["url"] = str(request.url)
+        return httpx2.Response(
+            200,
+            json={
+                "model": "jev-1.13.0",
+                "usage": {"input_tokens": 1, "output_tokens": 0},
+                "answers": {k: {"type": "noul", "noul": 0.5} for k in q.EMAIL_QUESTIONS},
+            },
+            headers={"x-typesafe-request-id": "req"},
+        )
+
+    # Build through get_client so the configured base URL is what is exercised.
+    jev_client.set_client(None)
+    monkeypatch.setattr(
+        jev_client,
+        "AsyncTypeSafeClient",
+        lambda **kwargs: AsyncTypeSafeClient(
+            **{**kwargs, "transport": httpx2.MockTransport(handler)}
+        ),
+    )
+
+    await jev_client.ask(state={"a": 1}, questions=q.EMAIL_QUESTIONS, purpose="test")
+
+    assert seen["url"] == "https://gateway.example/v1/systemone"
+
+
+async def test_no_gateway_configured_means_the_default_host(
+    jev_env: None, monkeypatch, reload_settings
+) -> None:
+    monkeypatch.delenv("TYPESAFE_BASE_URL", raising=False)
+    reload_settings()
+
+    import httpx2
+    from typesafe_sdk import AsyncTypeSafeClient
+
+    seen: Dict[str, Any] = {}
+
+    def handler(request: "httpx2.Request") -> "httpx2.Response":
+        seen["url"] = str(request.url)
+        return httpx2.Response(
+            200,
+            json={
+                "model": "jev-1.13.0",
+                "usage": {"input_tokens": 1, "output_tokens": 0},
+                "answers": {k: {"type": "noul", "noul": 0.5} for k in q.EMAIL_QUESTIONS},
+            },
+            headers={"x-typesafe-request-id": "req"},
+        )
+
+    jev_client.set_client(None)
+    monkeypatch.setattr(
+        jev_client,
+        "AsyncTypeSafeClient",
+        lambda **kwargs: AsyncTypeSafeClient(
+            **{**kwargs, "transport": httpx2.MockTransport(handler)}
+        ),
+    )
+
+    await jev_client.ask(state={"a": 1}, questions=q.EMAIL_QUESTIONS, purpose="test")
+
+    assert seen["url"] == "https://api.typesafe.ai/v1/systemone"

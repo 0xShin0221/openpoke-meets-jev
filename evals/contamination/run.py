@@ -292,7 +292,7 @@ async def run(
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("evals/contamination/results"))
-    parser.add_argument("--templates-per-category", type=int, default=6)
+    parser.add_argument("--templates-per-category", type=int, default=10)
     parser.add_argument("--positions", nargs="+", default=list(payloads_module.POSITIONS))
     parser.add_argument(
         "--repeats",
