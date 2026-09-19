@@ -30,7 +30,7 @@ Everything is optional. With no `TYPESAFE_API_KEY` set, every entry point return
 
 ## What the contamination experiment found
 
-39,456 requests, zero failures, `jev-1.13.0`, $1.82. Full numbers and caveats in
+43,776 requests, zero failures, `jev-1.13.0`, $2.04. Full numbers and caveats in
 [`evals/contamination/FINDINGS.md`](evals/contamination/FINDINGS.md).
 
 **Nothing could force an email to be surfaced.** Eight mechanisms, 80 templates,
@@ -54,11 +54,22 @@ subject clipped and labelled unverified, in a notice assembled in code rather
 than written by a model. `JEV_QUARANTINE_INJECTIONS=0` restores the old
 behaviour now that its price is known.
 
-Two smaller things worth knowing. Position matters and not the way the agent
-literature says: top of body 21.6%, middle 16.8%, end 10.9%, where AgentDojo
-found end-of-content strongest for injections in tool output. And the injection
-question itself has **zero false positives in 2,160 control trials** — it works,
-which is precisely why wiring it to a silent drop was a bad idea.
+Three smaller things worth knowing.
+
+**Shouting is counterproductive in both directions.** The payloads that announce
+themselves failed to raise importance and failed to lower it, moving the answer
+away from what the attacker wanted each time. What works is quiet institutional
+framing — an impersonated operator config line, a role assignment, a note that
+screening has already passed. Against a 4.55% [2.7%, 7.1%] insertion-noise floor
+measured with neutral filler, six mechanisms clear it cleanly and the two loudest
+fall below it.
+
+**Position matters, and not the way the agent literature says**: top of body
+21.6%, middle 16.8%, end 10.9%, where AgentDojo found end-of-content strongest
+for injections in tool output.
+
+**The injection question has zero false positives in 2,160 control trials** — it
+works, which is precisely why wiring it to a silent drop was a bad idea.
 
 ## What I still haven't measured
 
