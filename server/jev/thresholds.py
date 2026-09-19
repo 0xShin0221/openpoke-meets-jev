@@ -65,11 +65,18 @@ TOOL_INTENT_MISMATCH_HOLD: Final[float] = 0.85
 TOOL_INTENT_MISMATCH_STEER: Final[float] = 0.60
 TOOL_OFF_TASK_STEER: Final[float] = 0.85
 TOOL_OFF_TASK_WARN: Final[float] = 0.60
-# Applied only to tools listed in IRREVERSIBLE_TOOLS below.
+# The bar at which the model's own `irreversible` answer makes a call count as
+# irreversible. It applies to *every* tool, not only the ones named below: the
+# allow-list and this threshold are two independent routes to the same verdict,
+# because a tool rename should not silently disarm the rung.
 TOOL_IRREVERSIBLE_HOLD: Final[float] = 0.70
 
-# Tools whose effects the user cannot take back. Everything else is reviewed
-# on the looser intent/off-task bars only.
+# Tools whose effects the user cannot take back. Matched case-insensitively and
+# ignoring separators, because this list is an enumeration and enumerations go
+# stale: the same shape of allow-list has been publicly bypassed in other agent
+# tools, and a tool renamed from GMAIL_SEND_EMAIL to send_email would otherwise
+# drop off it silently. The model's `irreversible` answer above is the
+# independent second route for anything not named here.
 IRREVERSIBLE_TOOLS: Final[frozenset[str]] = frozenset(
     {
         "GMAIL_SEND_EMAIL",
@@ -78,8 +85,32 @@ IRREVERSIBLE_TOOLS: Final[frozenset[str]] = frozenset(
         "GMAIL_DELETE_MESSAGE",
         "GMAIL_DELETE_DRAFT",
         "GMAIL_MOVE_TO_TRASH",
+        "GMAIL_TRASH_MESSAGE",
+        "SEND_EMAIL",
+        "SEND_MESSAGE",
+        "REPLY_TO_EMAIL",
+        "FORWARD_EMAIL",
+        "DELETE_EMAIL",
+        "DELETE_FILE",
+        "CANCEL_CALENDAR_EVENT",
     }
 )
+
+_NORMALIZED_IRREVERSIBLE: Final[frozenset[str]] = frozenset(
+    "".join(ch for ch in name.lower() if ch.isalnum()) for name in IRREVERSIBLE_TOOLS
+)
+
+
+def is_named_irreversible(tool_name: str) -> bool:
+    """Return ``True`` when ``tool_name`` is on the irreversible allow-list.
+
+    Case and separators are ignored so that ``GMAIL_SEND_EMAIL``,
+    ``gmail.send_email`` and ``sendEmail`` all match the same entry.
+    """
+
+    if not tool_name:
+        return False
+    return "".join(ch for ch in tool_name.lower() if ch.isalnum()) in _NORMALIZED_IRREVERSIBLE
 
 # ----------------------------------------------------------------------
 # Email search relevance filter
@@ -104,6 +135,7 @@ __all__ = [
     "TOOL_OFF_TASK_WARN",
     "TOOL_IRREVERSIBLE_HOLD",
     "IRREVERSIBLE_TOOLS",
+    "is_named_irreversible",
     "SEARCH_RELEVANCE_DROP",
     "SEARCH_MIN_SURVIVORS",
 ]

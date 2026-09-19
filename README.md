@@ -32,7 +32,7 @@ Everything is optional. With no `TYPESAFE_API_KEY` set, every entry point return
 
 This matters more than the section above, so it's not buried at the bottom.
 
-**I have no accuracy numbers, and I'm not going to imply any.** There's no labelled set yet, and the 84 tests verify routing logic, not judgement quality. Nobody in the Jev ecosystem has published an email-triage evaluation either, so there's nothing to borrow.
+**I have no accuracy numbers, and I'm not going to imply any.** There's no labelled set yet, and the 183 tests verify routing logic and harness correctness, not judgement quality. Nobody in the Jev ecosystem has published an email-triage evaluation either, so there's nothing to borrow.
 
 **The cost story is weaker than it looks.** Only the skip path saves anything. On the surface path I make a Jev call *and* a summarisation call, and if the summary comes back empty I fall through to the original tool-calling classifier anyway. So the best case there is one completion replaced by Jev plus one completion, and the worst case is all three. Unmeasured, and plausibly net-negative on that path.
 
@@ -40,7 +40,16 @@ This matters more than the section above, so it's not buried at the bottom.
 
 **The injection question is a filter, not a security boundary** — [jev-mcp](https://github.com/blakestone-x/jev-mcp)'s phrasing and it's the right one. It's also a *suppression* gate: a false positive means you never learn a real message existed. TypeSafe's 0.99 detection figure is theirs, on their data, on a forum post, not on email.
 
-`docs/EVALUATION.md` is the plan for fixing all of this: what to measure, what the numbers would have to look like to support a claim, and which corpora can legally be redistributed.
+`docs/EVALUATION.md` is the plan for fixing all of this: what to measure, what the numbers would have to look like to support a claim, and which corpora can legally be redistributed. The harnesses are in `evals/`:
+
+| | What it answers |
+| --- | --- |
+| `evals/contamination/` | Can hostile text in an email body move the answer to a *different* question in the same batched request? Nobody has published this. |
+| `evals/importance/` | What should the importance threshold actually be? Labelling rubric, blind annotation, cost-weighted sweep with cross-validation. Nobody has published a Jev threshold derived from a labelled set either. |
+| `evals/ab_llm/` | Jev against the LLM decision it replaced, same inputs, same question wording. |
+| `evals/agentdojo/` | The tool guardrail as a defence in AgentDojo's Workspace suite, scored on its own three metrics. |
+
+None of them have been run against the live model yet. When they have been, the numbers go in the README and so do the intervals.
 
 ## Things I got wrong on the first pass
 
@@ -81,7 +90,7 @@ pip install -r server/requirements-dev.txt
 python -m pytest
 ```
 
-84 of them, no network, no API keys. Jev is mocked through the SDK's documented `transport` seam with `httpx2.MockTransport`, so the tests exercise the SDK's real request serialisation and response validation, so a malformed question or a renamed answer field fails in CI rather than in production. OpenRouter is monkeypatched.
+183 of them, no network, no API keys. Jev is mocked through the SDK's documented `transport` seam with `httpx2.MockTransport`, so the tests exercise the SDK's real request serialisation and response validation, so a malformed question or a renamed answer field fails in CI rather than in production. OpenRouter is monkeypatched.
 
 ## If you want to tune it
 

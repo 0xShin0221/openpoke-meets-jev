@@ -1,6 +1,8 @@
 # openpoke-meets-jev: what to validate, and what we may claim
 
-Status: plan. Nothing in here has been run yet. Written after surveying TypeSafe's
+Status: the harnesses in `evals/` now implement this plan; none of them have
+been *run* against the live model yet, so every number below is still someone
+else's. Originally written as a plan. Written after surveying TypeSafe's
 own documentation, the published Jev ecosystem (~10 substantive projects out of
 ~130 listed), the public email corpora, and the prompt-injection benchmark
 literature. Every number quoted from someone else is attributed, and where I
@@ -640,13 +642,13 @@ carrier set from #3 but not the labels.
 
 | # | Work | Why now | Rough size |
 |---|---|---|---|
-| 1 | Correct the README's implied claims per §1 and §8 | We are currently implying a saving and a noise reduction we cannot support | an hour |
-| 2 | Decision log with probabilities, bounded + gitignored; `steer`/`warn` rungs on the guardrail | Prerequisite for every measurement and for offline re-thresholding; the rungs are free | ~200 lines |
+| 1 | Correct the README's implied claims per §1 and §8 — done | We are currently implying a saving and a noise reduction we cannot support | an hour |
+| 2 | Decision log with probabilities, bounded + gitignored; `steer`/`warn` rungs on the guardrail — done | Prerequisite for every measurement and for offline re-thresholding; the rungs are free | ~200 lines |
 | 3 | Carrier set + persona spec + rubric; pilot annotation for α | Everything downstream needs it; α gates whether the labels mean anything | 1–2 days |
-| 4 | **Cross-question contamination experiment** (§4) | Novel, cheap, unambiguous, needs carriers but not importance labels | 1–2 days |
-| 5 | Label 300–400 emails stratified; threshold sweep with repeated k-fold; reliability diagram; cost-weighted loss | First published threshold derivation in this ecosystem | 2–3 days |
-| 6 | LLM-vs-Jev A/B via the adapter on the same labelled set | Nobody has done this; kills the "unfair comparison" objection | 1 day |
-| 7 | Guardrail against AgentDojo Workspace | Real external benchmark instead of our own numbers | 1–2 days |
+| 4 | **Cross-question contamination experiment** (§4) — built, `evals/contamination/` | Novel, cheap, unambiguous, needs carriers but not importance labels | 1–2 days |
+| 5 | Label 300–400 emails stratified; threshold sweep with repeated k-fold; reliability diagram; cost-weighted loss — built, `evals/importance/` (40 synthetic items shipped; bring your own mail for the rest) | First published threshold derivation in this ecosystem | 2–3 days |
+| 6 | LLM-vs-Jev A/B via the adapter on the same labelled set — built, `evals/ab_llm/` | Nobody has done this; kills the "unfair comparison" objection | 1 day |
+| 7 | Guardrail against AgentDojo Workspace — built, `evals/agentdojo/` | Real external benchmark instead of our own numbers | 1–2 days |
 | 8 | Repeatability study (k=10–15 per email, straddle rate) | TypeSafe's own flagship metric; nobody has published one | half a day |
 | 9 | Reason chip + watcher-notification marking | Product value, independent of all measurement | half a day |
 

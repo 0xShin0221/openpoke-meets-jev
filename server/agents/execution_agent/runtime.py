@@ -129,7 +129,9 @@ class ExecutionAgentRuntime:
                         record_payload = error_detail
 
                     self.agent.record_tool_execution(
-                        tool_name,
+                        # A held call never ran, so the history must not read as
+                        # if it did.
+                        f"{tool_name} (held by guardrail)" if review.held else tool_name,
                         self._safe_json_dump(tool_args),
                         record_payload
                     )

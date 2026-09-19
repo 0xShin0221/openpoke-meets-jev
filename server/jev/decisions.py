@@ -249,7 +249,7 @@ async def review_tool_call(
             probabilities[key] = value
 
     irreversible_answer = probabilities.get("irreversible")
-    irreversible = tool_name in t.IRREVERSIBLE_TOOLS or (
+    irreversible = t.is_named_irreversible(tool_name) or (
         irreversible_answer is not None and irreversible_answer >= t.TOOL_IRREVERSIBLE_HOLD
     )
 

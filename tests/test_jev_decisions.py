@@ -331,3 +331,24 @@ async def test_filter_question_count_matches_candidate_count(jev_env: None, jev_
     body = calls[0]
     assert len(body["questions"]) == 2
     assert len(body["state"]["candidates"]) == 2
+
+
+def test_irreversible_allow_list_survives_a_tool_rename() -> None:
+    """An enumeration goes stale; matching must not depend on one spelling.
+
+    AgentDojo's Workspace suite calls the same operation `send_email`, and a
+    production rename would otherwise drop the tool off the list silently.
+    """
+
+    for spelling in ("GMAIL_SEND_EMAIL", "gmail.send_email", "sendEmail", "send_email"):
+        assert t.is_named_irreversible(spelling), spelling
+    for other in ("GMAIL_LIST_DRAFTS", "search", "", "create_draft"):
+        assert not t.is_named_irreversible(other), other
+
+
+async def test_renamed_send_tool_is_still_gated(jev_env: None, jev_transport) -> None:
+    review = await _review(
+        jev_transport, "send_email", intent_mismatch=0.95, off_task=0.1, irreversible=0.02
+    )
+
+    assert review.verdict == d.HOLD, "a rename must not disarm the hold rung"
