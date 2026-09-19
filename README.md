@@ -28,28 +28,60 @@ Every decision is written to a bounded log in `server/data/` with its probabilit
 
 Everything is optional. With no `TYPESAFE_API_KEY` set, every entry point returns "undecided" or "allow" and you get the original OpenPoke behaviour, byte for byte. I kept the old classifier intact rather than rewriting it, so the fallback path is the code that was already working.
 
-## What I haven't measured
+## What the contamination experiment found
+
+39,456 requests, zero failures, `jev-1.13.0`, $1.82. Full numbers and caveats in
+[`evals/contamination/FINDINGS.md`](evals/contamination/FINDINGS.md).
+
+**Nothing could force an email to be surfaced.** Eight mechanisms, 80 templates,
+720 eligible trials each, zero successes, exact upper bound 0.51%. The only text
+that moved the answer across the bar was the benign-urgency control at 2.50%
+[1.49%, 3.92%] — ordinary human urgency, which is the classifier working, not a
+hole. Adversarial text mostly moved the answer *down*: embedding "ignore all
+previous instructions" made Jev judge the mail less deserving of attention.
+
+**Silencing one is a different story, and my defence turned out to be the
+attack.** Flagging a body as an injection attempt used to drop it, and dropping
+it is exactly what a suppression attacker wants. Appending override text tripped
+that gate on **95.3% [93.1%, 97.2%]** of emails across all twelve carriers,
+including the one-time security code — which was also the most suppressible
+carrier by the other route, at 41.4%. Counting both routes, every mechanism
+silences an eligible email between 77% and 100% of the time.
+
+So a flagged body is now **quarantined, not dropped**: it still never reaches the
+interaction agent, but you are told a message was withheld, with sender and
+subject clipped and labelled unverified, in a notice assembled in code rather
+than written by a model. `JEV_QUARANTINE_INJECTIONS=0` restores the old
+behaviour now that its price is known.
+
+Two smaller things worth knowing. Position matters and not the way the agent
+literature says: top of body 21.6%, middle 16.8%, end 10.9%, where AgentDojo
+found end-of-content strongest for injections in tool output. And the injection
+question itself has **zero false positives in 2,160 control trials** — it works,
+which is precisely why wiring it to a silent drop was a bad idea.
+
+## What I still haven't measured
 
 This matters more than the section above, so it's not buried at the bottom.
 
-**I have no accuracy numbers, and I'm not going to imply any.** There's no labelled set yet, and the 183 tests verify routing logic and harness correctness, not judgement quality. Nobody in the Jev ecosystem has published an email-triage evaluation either, so there's nothing to borrow.
+**I have no accuracy numbers, and I'm not going to imply any.** There's no labelled set yet, and the 195 tests verify routing logic and harness correctness, not judgement quality. The contamination experiment measures robustness, not accuracy: it says the answer doesn't move when it shouldn't, not that the answer is right. Nobody in the Jev ecosystem has published an email-triage evaluation either, so there's nothing to borrow.
 
 **The cost story is weaker than it looks.** Only the skip path saves anything. On the surface path I make a Jev call *and* a summarisation call, and if the summary comes back empty I fall through to the original tool-calling classifier anyway. So the best case there is one completion replaced by Jev plus one completion, and the worst case is all three. Unmeasured, and plausibly net-negative on that path.
 
 **The gate may be looser than the boolean it replaced.** Security codes surface at 0.60 while general importance needs 0.75, and the uncertain band still hands the email to the original classifier, which can also say yes. The set of mail that reaches you may be a *superset* of what the old Sonnet boolean surfaced. If so, I've increased notification volume while describing the change as a filter. That's the first thing I intend to measure, because it's the failure mode that actually matters: the clinical alarm-fatigue literature is unambiguous that a noisy alarm gets muted, and then the real ones are missed too.
 
-**The injection question is a filter, not a security boundary** — [jev-mcp](https://github.com/blakestone-x/jev-mcp)'s phrasing and it's the right one. It's also a *suppression* gate: a false positive means you never learn a real message existed. TypeSafe's 0.99 detection figure is theirs, on their data, on a forum post, not on email.
+**The injection question is a filter, not a security boundary** — [jev-mcp](https://github.com/blakestone-x/jev-mcp)'s phrasing and it's the right one. I now have my own detection numbers rather than TypeSafe's: 76.7% to 99.9% by mechanism, weakest against the most realistic attack (a plain-text message impersonating the operator), with no false positives on the control. Quarantine limits what a false positive costs but does not eliminate it — an attacker can still bury a real message under a "withheld" notice.
 
 `docs/EVALUATION.md` is the plan for fixing all of this: what to measure, what the numbers would have to look like to support a claim, and which corpora can legally be redistributed. The harnesses are in `evals/`:
 
 | | What it answers |
 | --- | --- |
-| `evals/contamination/` | Can hostile text in an email body move the answer to a *different* question in the same batched request? Nobody has published this. |
+| `evals/contamination/` | Can hostile text in an email body move the answer to a *different* question in the same batched request? **Run** — see [FINDINGS.md](evals/contamination/FINDINGS.md). No leak observed (McNemar p = 0.52 over 3,276 paired trials), and a much more interesting failure found along the way. |
 | `evals/importance/` | What should the importance threshold actually be? Labelling rubric, blind annotation, cost-weighted sweep with cross-validation. Nobody has published a Jev threshold derived from a labelled set either. |
 | `evals/ab_llm/` | Jev against the LLM decision it replaced, same inputs, same question wording. |
 | `evals/agentdojo/` | The tool guardrail as a defence in AgentDojo's Workspace suite, scored on its own three metrics. |
 
-None of them have been run against the live model yet. When they have been, the numbers go in the README and so do the intervals.
+The contamination experiment has been run; the other three have not. When they have been, the numbers go here and so do the intervals.
 
 ## Things I got wrong on the first pass
 
@@ -90,7 +122,7 @@ pip install -r server/requirements-dev.txt
 python -m pytest
 ```
 
-183 of them, no network, no API keys. Jev is mocked through the SDK's documented `transport` seam with `httpx2.MockTransport`, so the tests exercise the SDK's real request serialisation and response validation, so a malformed question or a renamed answer field fails in CI rather than in production. OpenRouter is monkeypatched.
+195 of them, no network, no API keys. Jev is mocked through the SDK's documented `transport` seam with `httpx2.MockTransport`, so the tests exercise the SDK's real request serialisation and response validation, so a malformed question or a renamed answer field fails in CI rather than in production. OpenRouter is monkeypatched.
 
 ## If you want to tune it
 
