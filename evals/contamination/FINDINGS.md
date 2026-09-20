@@ -6,8 +6,12 @@ trying to force an email to be surfaced, and one trying to get it silenced. The
 filler control was enlarged and the suppression direction re-run after the first
 pass showed that control was too small to calibrate anything; only the new
 filler trials were billed, because every response is cached by request.
-Raw per-request responses are cached in `results/` and `results-suppress/`, so
-every number here re-derives offline without spending a request.
+Each direction's `run_summary.json` is in the repo. The raw per-request
+responses are not: they land in `results/` and `results-suppress/` as the cache
+the run writes, about 10 MB per direction, which is more than belongs in a git
+history. So every number here re-derives offline on the machine that ran it, and
+a fresh clone has to spend the run — $2.04 and about 40 minutes — before
+`analyze` has anything to read.
 
 ## The short version
 

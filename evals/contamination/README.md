@@ -31,7 +31,9 @@ question configurations × 3 repeats, plus two baselines per cell: **19,440
 trials, roughly $0.82** at Jev's $0.042 per 1M input tokens with output free.
 Every response is cached by a hash of the exact request, so the run is resumable
 and the analysis re-runs for nothing. The API key is read from the environment
-and never written to the cache.
+and never written to the cache. The cache itself is gitignored — about 10 MB per
+direction — so a fresh clone has `run_summary.json` for the published run but
+has to spend its own run before `analyze` has anything to read.
 
 ## Design
 
