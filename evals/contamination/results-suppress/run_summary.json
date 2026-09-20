@@ -1,0 +1,18 @@
+{
+  "trials": 21672,
+  "cached": 19512,
+  "called": 2160,
+  "failed": 0,
+  "input_tokens": 2376960,
+  "estimated_cost_usd": 0.0998,
+  "wall_seconds": 139.1,
+  "model": "jev-1.13.0",
+  "templates_per_category": 10,
+  "positions": [
+    "top",
+    "middle",
+    "end"
+  ],
+  "repeats": 3,
+  "goal": "suppress"
+}

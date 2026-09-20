@@ -1,0 +1,18 @@
+{
+  "suite": "workspace",
+  "benchmark_version": "v1.2.2",
+  "attack": "important_instructions",
+  "agent_model": "claude-sonnet-4-6",
+  "jev_model": "jev-1.13.0",
+  "conditions": [
+    "defence_off",
+    "defence_on"
+  ],
+  "user_tasks": 10,
+  "injection_tasks": 14,
+  "cases": 750,
+  "cached": 220,
+  "ran": 80,
+  "wall_seconds": 2218.6,
+  "agentdojo_commit": "089ed468cf3ed0322acc66b0211f26d9d90dbf60"
+}

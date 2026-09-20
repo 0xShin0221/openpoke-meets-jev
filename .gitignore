@@ -44,3 +44,14 @@ server/venv/
 # Generated documentation / analysis artifacts
 server/repomix-output.txt
 server/plans/
+
+# Local scratch: PR drafts, repo bundles, assistant transcripts
+.PR-BODY.md
+*.bundle
+Claude outputs/
+/contamination-report.json
+/contamination-suppress.json
+
+# Raw eval responses: ~10MB each, re-fetchable; summaries are committed
+evals/contamination/results/responses.jsonl
+evals/contamination/results-suppress/responses.jsonl

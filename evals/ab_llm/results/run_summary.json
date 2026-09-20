@@ -1,0 +1,43 @@
+{
+  "trials": 72,
+  "repeats": 3,
+  "arms": [
+    "jev",
+    "llm"
+  ],
+  "questions_sha256": "60163bb64f6a2563767381e2b1bf30cafa5b3cbde8e1a114d888f087b86c5255",
+  "question_keys": [
+    "important",
+    "security_code",
+    "automated_bulk",
+    "prompt_injection"
+  ],
+  "per_arm": {
+    "jev": {
+      "cached": 0,
+      "called": 36,
+      "failed": 0,
+      "input_tokens": 41739,
+      "backend": "typesafe_sdk:jev-1.13.0",
+      "probability_source": "noul",
+      "input_cost_per_million": 0.042,
+      "estimated_cost_usd": 0.00175304
+    },
+    "llm": {
+      "cached": 0,
+      "called": 36,
+      "failed": 0,
+      "input_tokens": 55554,
+      "backend": "openrouter:anthropic/claude-sonnet-4",
+      "probability_source": "verbalised_structured_output",
+      "input_cost_per_million": 3.0,
+      "estimated_cost_usd": 0.166662
+    }
+  },
+  "cached": 0,
+  "called": 72,
+  "failed": 0,
+  "input_tokens": 97293,
+  "estimated_cost_usd": 0.16841504,
+  "wall_seconds": 26.4
+}

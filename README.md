@@ -2,21 +2,7 @@
 
 A fork of [OpenPoke](https://github.com/shlokkhemani/OpenPoke) that stops asking a chat model to make decisions.
 
-OpenPoke is Shlok Khemani's open reimplementation of Poke: a FastAPI backend with an interaction agent, execution agents, Gmail tooling through Composio, and a watcher that pings you about important mail. I run it locally and I like it. What kept bothering me is how much of it is an LLM being asked a yes/no question.
-
-Look at what the important-email watcher actually does. Every minute it pulls your inbox, and for each new message it sends the full body to Claude Sonnet with a tool schema whose only required field is a boolean. Marketing mail, shipping notifications, newsletters, that Slack digest. All of it costs a Sonnet call to learn "no", and the answer is one bit.
-
-That's what this fork changes. Decisions go to [Jev](https://docs.typesafe.ai/concepts/system-one), TypeSafe's System One model, which answers typed questions with calibrated probabilities instead of text. The LLM stays for the part it's actually good at: writing the notification you read.
-
-## The same decision, both ways
-
-`evals/ab_llm/` asks both the old path and the new one the same four questions
-about the same twelve emails. Both arms get the same `state` and the same
-`EMAIL_QUESTIONS` dicts, not a reworded LLM version of them. I put
-`state_sha256` and `questions_sha256` on every row so the pairing is checkable
-from the results file without taking my word for it. The other arm is `anthropic/claude-sonnet-4`, because
-that is what `server/config.py` used for this decision. 12 carriers × 3 repeats
-× 2 arms = 72 calls, 0 failures, 26.4 s wall.
+![The same decision, both ways](docs/ab.png)
 
 | | claude-sonnet-4 | jev-1.13.0 |
 | --- | --- | --- |
@@ -27,28 +13,25 @@ that is what `server/config.py` used for this decision. 12 carriers × 3 repeats
 | Distinct probabilities across 36 answers | 6 | 18 |
 | Agreement at the 0.75 bar | — | **33 / 36** |
 
-Some of those rows are firmer than others. The cost ratio is arithmetic on list
-rates ($3.00 against $0.042 per million input tokens), and the token counts
-aren't equal either — 55,554 against 41,739, because the LLM arm carries a tool
-schema. The latency numbers came off one machine in one afternoon, one provider
-per arm. I'd read 6× as an order of magnitude and not much more.
+Read those as *per decision*, not per pipeline. The cost ratio is arithmetic on list rates ($3.00 against $0.042 per million input tokens) over unequal token counts — 55,554 against 41,739, because the LLM arm carries a tool schema. The latency numbers came off one machine in one afternoon, one provider per arm; I'd read 6× as an order of magnitude and not much more. There is no labelled set in this repo, so the harness reports agreement, latency, cost and distribution, and refuses to print accuracy or Brier. Agreement isn't accuracy: both arms can agree and both be wrong.
 
-**The three disagreements are one email, not three.** A contract renewal, in all
-three repeats, identically: Jev 0.57 against Sonnet's 0.90. 0.57 is inside the
-uncertain band, so in the running pipeline that message is `UNDECIDED` and goes
-to the LLM classifier anyway. So that isn't a disagreement. Jev declined, which
-is what I put the band there for.
+Then I spent two weeks attacking it, and found a hole in my own defence. [Jump to that](#what-the-contamination-experiment-found), it's the more interesting half.
 
-Sonnet's 36 answers
-land on six values — 0.1, 0.2, 0.3, 0.7, 0.9, 1.0 — because a verbalised
-confidence inside a structured output quantises onto round numbers. Jev's land
-on 18. That isn't a calibration comparison, and `analyze` warns you whenever it
-renders both: they're different quantities and one of them has a lumpy prior. It
-does mean threshold tuning has somewhere to go on one arm and not the other.
+## Why
 
-No labelled set ships with this repo, so the harness reports agreement, latency,
-cost and distribution, and refuses to print accuracy or Brier. Agreement isn't
-accuracy: both arms can agree and both be wrong.
+OpenPoke is Shlok Khemani's open reimplementation of Poke: a FastAPI backend with an interaction agent, execution agents, Gmail tooling through Composio, and a watcher that pings you about important mail. I run it locally and I like it. What kept bothering me is how much of it is an LLM being asked a yes/no question.
+
+Look at what the important-email watcher actually does. Every minute it pulls your inbox, and for each new message it sends the full body to Claude Sonnet with a tool schema whose only required field is a boolean. Marketing mail, shipping notifications, newsletters, that Slack digest. All of it costs a Sonnet call to learn "no", and the answer is one bit.
+
+That's what this fork changes. Decisions go to [Jev](https://docs.typesafe.ai/concepts/system-one), TypeSafe's System One model, which answers typed questions with calibrated probabilities instead of text. The LLM stays for the part it's actually good at: writing the notification you read.
+
+## How the table was produced
+
+`evals/ab_llm/` asks both the old path and the new one the same four questions about the same twelve emails. Both arms get the same `state` and the same `EMAIL_QUESTIONS` dicts, not a reworded LLM version of them. I put `state_sha256` and `questions_sha256` on every row so the pairing is checkable from the results file without taking my word for it. The other arm is `anthropic/claude-sonnet-4`, because that is what `server/config.py` used for this decision. 12 carriers × 3 repeats × 2 arms = 72 calls, 0 failures, 26.4 s wall.
+
+**The three disagreements are one email, not three.** A contract renewal, in all three repeats, identically: Jev 0.57 against Sonnet's 0.90. 0.57 is inside the uncertain band, so in the running pipeline that message is `UNDECIDED` and goes to the LLM classifier anyway. So that isn't a disagreement. Jev declined, which is what I put the band there for.
+
+Sonnet's 36 answers land on six values — 0.1, 0.2, 0.3, 0.7, 0.9, 1.0 — because a verbalised confidence inside a structured output quantises onto round numbers. Jev's land on 18. That isn't a calibration comparison, and `analyze` warns you whenever it renders both: they're different quantities and one of them has a lumpy prior. It does mean threshold tuning has somewhere to go on one arm and not the other.
 
 ## What's different
 
@@ -72,52 +55,39 @@ Everything is optional. With no `TYPESAFE_API_KEY` set, every entry point return
 
 ## What the contamination experiment found
 
-43,776 requests, zero failures, `jev-1.13.0`, $2.04. Full numbers and caveats in
-[`evals/contamination/FINDINGS.md`](evals/contamination/FINDINGS.md).
+43,776 requests, zero failures, `jev-1.13.0`, $2.04. Full numbers and caveats in [`evals/contamination/FINDINGS.md`](evals/contamination/FINDINGS.md).
 
-**Nothing could force an email to be surfaced.** Eight mechanisms, 80 templates,
-720 eligible trials each, zero successes, exact upper bound 0.51%. The only text
-that moved the answer across the bar was the benign-urgency control at 2.50%
-[1.49%, 3.92%] — ordinary human urgency, which is the classifier doing its
-job. Adversarial text mostly moved the answer *down*: embedding "ignore all
-previous instructions" made Jev judge the mail less deserving of attention.
+![Nothing could force an email in. My own gate silenced 95.3%.](docs/contamination.png)
 
-**Suppression is a different story. The injection gate I added is what made it
-possible.** Flagging a body as an injection attempt used to drop it, and dropping
-it is exactly what a suppression attacker wants. Appending override text tripped
-that gate on **95.3% [93.1%, 97.2%]** of emails across all twelve carriers,
-including the one-time security code — which was also the most suppressible
-carrier by the other route, at 41.4%. Counting both routes, every mechanism
-silences an eligible email between 77% and 100% of the time.
+**Nothing could force an email to be surfaced.** Eight mechanisms, 80 templates, 720 eligible trials each, zero successes, exact upper bound 0.51%. The only text that moved the answer across the bar was the benign-urgency control at 2.50% [1.49%, 3.92%] — ordinary human urgency, which is the classifier doing its job. Adversarial text mostly moved the answer *down*: embedding "ignore all previous instructions" made Jev judge the mail less deserving of attention.
 
-So a flagged body is now **quarantined, not dropped**: it still never reaches the
-interaction agent, but you are told a message was withheld, with sender and
-subject clipped and labelled unverified, in a notice assembled in code rather
-than written by a model. `JEV_QUARANTINE_INJECTIONS=0` restores the old
-behaviour, now that I know what it costs.
+**Suppression is a different story. The injection gate I added is what made it possible.** Flagging a body as an injection attempt used to drop it, and dropping it is exactly what a suppression attacker wants. Appending override text tripped that gate on **95.3% [93.1%, 97.2%]** of emails across all twelve carriers, including the one-time security code — which was also the most suppressible carrier by the other route, at 41.4%. Counting both routes, every mechanism silences an eligible email between 77% and 100% of the time.
+
+So a flagged body is now **quarantined, not dropped**: it still never reaches the interaction agent, but you are told a message was withheld, with sender and subject clipped and labelled unverified, in a notice assembled in code rather than written by a model. `JEV_QUARANTINE_INJECTIONS=0` restores the old behaviour, now that I know what it costs.
 
 Three smaller findings.
 
-**Loud payloads backfire both ways.** The ones that announce themselves didn't
-raise importance and didn't lower it either; they pushed the answer away from
-what the attacker wanted each time. Quiet institutional framing works better: an
-impersonated operator config line, a role assignment, a note saying screening
-already passed. Against a 4.55% [2.7%, 7.1%] insertion-noise floor
-measured with neutral filler, six mechanisms clear it cleanly and the two loudest
-fall below it.
+**Loud payloads backfire both ways.** The ones that announce themselves didn't raise importance and didn't lower it either; they pushed the answer away from what the attacker wanted each time. Quiet institutional framing works better: an impersonated operator config line, a role assignment, a note saying screening already passed. Against a 4.55% [2.7%, 7.1%] insertion-noise floor measured with neutral filler, six mechanisms clear it cleanly and the two loudest fall below it.
 
-**Position matters, and the ordering is the opposite of what I expected**: top of body
-21.6%, middle 16.8%, end 10.9%, where AgentDojo found end-of-content strongest
-for injections in tool output.
+**Position matters, and the ordering is the opposite of what I expected**: top of body 21.6%, middle 16.8%, end 10.9%, where AgentDojo found end-of-content strongest for injections in tool output.
 
-**The injection question has zero false positives in 2,160 control trials.** It
-works. That's exactly why wiring it to a silent drop was a bad idea.
+**The injection question has zero false positives in 2,160 control trials.** It works. That's exactly why wiring it to a silent drop was a bad idea.
+
+## What AgentDojo measured, which was not the guardrail
+
+750 cases: Workspace suite v1.2.2, the `important_instructions` attack, agent `claude-sonnet-4-6`, guardrail on and off.
+
+**Attack success was zero in every condition** — 0 of 560 with the guardrail off, 0 of 140 with it on. The attacks do not land on this agent model at all, which means this run can't say whether the guardrail protects anything. If you report "0% attack success rate, the defence works" off this run, you're reporting `claude-sonnet-4-6`.
+
+The guardrail reviewed **273 tool calls and held none**: 273 allow, 0 warn, 0 steer, 0 hold. Utility under attack was 95.0% (532/560) with it off against 90.7% (127/140) with it on; benign, 38/40 against 10/10. Paired over matched cases, five successes only with the defence off and four only with it on, exact McNemar p = 1.0. The benign "100%" is ten cases. I'm not calling that an improvement.
+
+So on this suite, with this model, the guardrail is inert. It didn't break anything and it never got a chance to save anything. I'm writing that down because this suite has stopped discriminating and people keep citing it as evidence that defences work.
 
 ## What I still haven't measured
 
 **I have no accuracy numbers, and I'm not going to imply any.** There's no labelled set yet, and the 195 tests verify routing logic and harness correctness, not judgement quality. The contamination experiment measures robustness, not accuracy: it says the answer doesn't move when it shouldn't, not that the answer is right. Nobody in the Jev ecosystem has published an email-triage evaluation either, so there's nothing to borrow.
 
-**The cost story is weaker than the table above looks.** Per decision, Jev against Sonnet is measured and it is not close. Per *pipeline* it is not measured at all, and that's the number that matters. Only the skip path saves anything. On the surface path I make a Jev call *and* a summarisation call, and if the summary comes back empty I fall through to the original tool-calling classifier anyway. So the best case there is one completion replaced by Jev plus one completion, and the worst case is all three. A 95× cheaper decision inside a path that makes three calls instead of one is not a saving, and I have not run the comparison that would tell me which way it goes.
+**The cost story is weaker than the table at the top looks.** Per decision, Jev against Sonnet is measured and it is not close. Per *pipeline* it is not measured at all, and that's the number that matters. Only the skip path saves anything. On the surface path I make a Jev call *and* a summarisation call, and if the summary comes back empty I fall through to the original tool-calling classifier anyway. So the best case there is one completion replaced by Jev plus one completion, and the worst case is all three. A 95× cheaper decision inside a path that makes three calls instead of one is not a saving, and I have not run the comparison that would tell me which way it goes.
 
 **The gate may be looser than the boolean it replaced.** Security codes surface at 0.60 while general importance needs 0.75, and the uncertain band still hands the email to the original classifier, which can also say yes. The set of mail that reaches you may be a *superset* of what the old Sonnet boolean surfaced. If so, I've increased notification volume while describing the change as a filter. That's the first thing I want to measure. The clinical alarm-fatigue literature is clear enough about where it ends up: a noisy alarm gets muted, and then you miss the real ones too.
 
@@ -127,35 +97,12 @@ works. That's exactly why wiring it to a silent drop was a bad idea.
 
 | | What it answers |
 | --- | --- |
-| `evals/contamination/` | Can hostile text in an email body move the answer to a *different* question in the same batched request? **Run** — see [FINDINGS.md](evals/contamination/FINDINGS.md). No leak observed — exact McNemar p = 0.375 over 7,272 paired trials in the surfacing direction, p = 0.729 over 3,636 in the suppression direction The first of those two tests has almost no power, since the attack categories scored zero; the second is a real null. The suppression failure turned up on the way there. |
+| `evals/contamination/` | Can hostile text in an email body move the answer to a *different* question in the same batched request? **Run** — see [FINDINGS.md](evals/contamination/FINDINGS.md). No leak observed — exact McNemar p = 0.375 over 7,272 paired trials in the surfacing direction, p = 0.729 over 3,636 in the suppression direction. The first of those two tests has almost no power, since the attack categories scored zero; the second is a real null. The suppression failure turned up on the way there. |
 | `evals/importance/` | What should the importance threshold actually be? Labelling rubric, blind annotation, cost-weighted sweep with cross-validation. Nobody has published a Jev threshold derived from a labelled set either. |
 | `evals/ab_llm/` | Jev against the LLM decision it replaced, same inputs, same question wording. **Run** — the table at the top of this README. Latency, cost, agreement and distribution only; no labels, so no accuracy. |
-| `evals/agentdojo/` | The tool guardrail as a defence in AgentDojo's Workspace suite, scored on its own three metrics. **Run** — see below. The attacks didn't land on this agent model at all, so the run measures the model, not the guardrail. |
+| `evals/agentdojo/` | The tool guardrail as a defence in AgentDojo's Workspace suite, scored on its own three metrics. **Run** — see above. The attacks didn't land on this agent model at all, so the run measures the model, not the guardrail. |
 
-`evals/importance/` still needs a human to label a corpus first, and until that
-happens every threshold in this repo is a guess.
-
-## What AgentDojo measured, which was not the guardrail
-
-750 cases: Workspace suite v1.2.2, the `important_instructions` attack, agent
-`claude-sonnet-4-6`, guardrail on and off.
-
-**Attack success was zero in every condition** — 0 of 560 with the guardrail off,
-0 of 140 with it on. The attacks do not land on this agent model at all, which
-means this run can't say whether the guardrail protects anything. If you report
-"0% attack success rate, the defence works" off this run, you're reporting
-`claude-sonnet-4-6`.
-
-The guardrail reviewed **273 tool calls and held none**: 273 allow, 0 warn, 0
-steer, 0 hold. Utility under attack was 95.0% (532/560) with it off against 90.7%
-(127/140) with it on; benign, 38/40 against 10/10. Paired over matched cases,
-five successes only with the defence off and four only with it on, exact McNemar
-p = 1.0. The benign "100%" is ten cases. I'm not calling that an improvement.
-
-So on this suite, with this model, the guardrail is inert. It didn't break
-anything and it never got a chance to save anything. I'm writing that down
-because this suite has stopped discriminating and people keep citing it as
-evidence that defences work.
+`evals/importance/` still needs a human to label a corpus first, and until that happens every threshold in this repo is a guess.
 
 ## Things I got wrong on the first pass
 
