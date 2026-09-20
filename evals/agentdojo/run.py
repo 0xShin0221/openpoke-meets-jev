@@ -160,15 +160,35 @@ def build_pipeline(
     """
 
     from agentdojo.agent_pipeline import AgentPipeline, PipelineConfig
+    from agentdojo.agent_pipeline.agent_pipeline import ModelsEnum
 
-    config = PipelineConfig(
-        llm=model,
-        model_id=None,
-        defense=None,
-        system_message_name=None,
-        system_message=None,
-    )
-    pipeline = AgentPipeline.from_config(config)
+    # If the model is known to AgentDojo's enum, use the standard path.
+    # Otherwise build the pipeline manually so we can use newer model IDs
+    # that the pinned agentdojo release doesn't list yet.
+    try:
+        ModelsEnum(model)
+        config = PipelineConfig(
+            llm=model,
+            model_id=None,
+            defense=None,
+            system_message_name=None,
+            system_message=None,
+        )
+        pipeline = AgentPipeline.from_config(config)
+    except ValueError:
+        from agentdojo.agent_pipeline.llms.anthropic_llm import AnthropicLLM
+        from agentdojo.agent_pipeline import (
+            InitQuery, SystemMessage, ToolsExecutionLoop, ToolsExecutor,
+        )
+        from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
+        from anthropic import AsyncAnthropic
+
+        client = AsyncAnthropic(max_retries=0)
+        llm = AnthropicLLM(client, model)
+        system_message_component = SystemMessage(None)
+        init_query_component = InitQuery()
+        tools_loop = ToolsExecutionLoop([ToolsExecutor(tool_result_to_str), llm])
+        pipeline = AgentPipeline([system_message_component, init_query_component, llm, tools_loop])
 
     if condition == DEFENCE_OFF:
         pipeline.name = f"{model}-undefended"
